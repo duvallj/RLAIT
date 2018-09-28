@@ -1,0 +1,4 @@
+keras
+keras-applications
+keras-preprocessing
+tensorflow-gpu
