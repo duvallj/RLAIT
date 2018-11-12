@@ -1,1 +1,1 @@
-
+from .vocab import *
