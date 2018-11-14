@@ -82,7 +82,7 @@ class History(np.ndarray):
     ]
     
     Game = [
-        (State, Move),
+        (State, None),   # Represents initial state
         (State, Move),
         (State, Move),
         ...
@@ -92,5 +92,13 @@ class History(np.ndarray):
     This works because each State contains the next player and phase data within
     it. Also should be fairly efficient because everything  except the
     one state-move tuple is ndarrays.
+    """
+    pass
+    
+class Game(np.ndarray):
+    """
+    Notes
+    -----
+    Stores the current progress of a game. See above for implementation details.
     """
     pass

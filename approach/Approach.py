@@ -1,4 +1,4 @@
-from ..util import State, Move, History
+from ..util import State, Move, Game, History
 
 class Approach:
     def __init__(self, approach_name="empty_approach"):
@@ -22,8 +22,8 @@ class Approach:
         ----------
         task : Task
             The Task object to customize to. Should provide
-            all the necessary methods for this approach to customize, like length of move vectors for different
-            phases.
+            all the necessary methods for this approach to customize, 
+            like length of move vectors for different phases.
             
         Returns
         -------
@@ -73,7 +73,10 @@ class Approach:
         
     def load_history(self, filename):
         """
-        Loads a game history from a file. A file can optionally contain one or many History classes, and this method can be extended with optional arguments to specify how many histories to load.
+        Loads a game history from a file. A file can optionally
+        contain one or many History classes, and this method 
+        can be extended with optional arguments to specify how 
+        many histories to load.
         
         Parameters
         ----------
@@ -89,7 +92,8 @@ class Approach:
         
     def save_history(self, filename):
         """
-        Saves the current game history to a file. Should generally append to the history in the file if it exists.
+        Saves the current game history to a file. Should generally 
+        append to the history in the file if it exists.
         
         Parameters
         ----------
@@ -102,3 +106,33 @@ class Approach:
         """
         
         return self
+        
+    def train_once(self):
+        """
+        Runs a single training iteration to fine-tune the weights. Possible
+        side effects include:
+        
+        * Changing the internals weights (duh)
+        * Adding to the history (optional)
+        * Printing to console
+        * Automatically calling `save_history` and `save_weights`
+        
+        In implementations, can take custom arguments here in a single dict
+        or have arguments passed in an earlier initialization phase.
+        Any settings passed in here are expected to override default settings.
+        """
+        pass
+        
+        
+    def test_once(self):
+        """
+        Runs a single testing interation. Does not change weights, and usually
+        does not change the history either.
+        
+        Returns
+        -------
+        score : float
+            ELO, win percentage, other number where higher is better
+        """
+        
+        return None
