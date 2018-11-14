@@ -66,6 +66,26 @@ class Task:
         
         return None
         
+    def get_canonical_form(self, state):
+        """
+        Gets the canonical form of a state, eg how a player sees the board.
+        For example, if player 0 and player 1 both "see" the exact same thing
+        (their opponents pieces are in the same configuration theirs are),
+        this method will return the same output for each player.
+        
+        Parameters
+        ----------
+        state : State
+            
+        Returns
+        -------
+        State
+            The original state, assumed to be from player 0's perspective, transformed to
+            be from state's `next_player`'s perspective.
+        """
+        
+        return None
+        
     def apply_move(self, move, state):
         """
         Applies a move to a state, returning an updated state
