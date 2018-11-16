@@ -1,6 +1,12 @@
 import numpy as np
 
 STATE_TYPE_OPTIONS = ['flat', 'rect', 'deepflat', 'deeprect']
+STATE_TYPE_OPTION_TO_INDEX = {
+    'flat': 0,
+    'rect': 1,
+    'deepflat': 2,
+    'deeprect': 3,
+}
 
 class State(np.ndarray):
     """
@@ -20,22 +26,14 @@ class State(np.ndarray):
     For every location in the state (be it in `flat` or `rect`) format,
     there is a boolean vector containing all the players in that location.
     A `deepflat` or `deeprect` configuration is similar, only it has
-    each location contain a vector with all the possible types of pieces or 
-    occupation states any player could have in that spot, and then the
-    vector of occupying players. This is to support more tasks like Chess 
+    each player's location be a vector with all the possible types of pieces or 
+    occupation states any player could have in that spot. This is to support more tasks like Chess 
     for example.
     """
     
-    def __array_finalize__(self, obj):
-        if isinstance(obj, State):
-            self.task_name = obj.task_name
-            self.phase = obj.phase
-            self.type = obj.type
-            self.next_player = obj.next_player
-        elif obj is not None:
-            raise TypeError("You can only cast States from other States")
-            
-    def __init__(self, *args, task_name="empty_task", phase=0, type=0, next_player=0, **kwargs):
+    def __new__(subtype, shape, dtype=float, buffer=None, offset=0,
+                strides=None, order=None,
+                task_name="empty_task", phase=0, state_type=0, next_player=0):
         """
         Class initializer. Preferred method of creating States.
         
@@ -50,10 +48,23 @@ class State(np.ndarray):
         first_player : int
             ID of the first player to make a move
         """
-        self.task_name = task_name
-        self.phase = phase
-        self.type = type
-        self.next_player = next_player
+        
+        obj = super(State, subtype).__new__(subtype, shape, dtype, buffer, offset, strides, order)
+        
+        obj.task_name = task_name
+        obj.phase = phase
+        obj.state_type = state_type
+        obj.next_player = next_player
+        
+        return obj
+    
+    def __array_finalize__(self, obj):
+        if obj is None: return
+        
+        self.task_name = getattr(obj, 'task_name', "empty_task")
+        self.phase = getattr(obj, 'phase', 0)
+        self.type = getattr(obj, 'type', 0)
+        self.next_player = getattr(obj, 'next_player', 0)
             
     
 class Move(State):

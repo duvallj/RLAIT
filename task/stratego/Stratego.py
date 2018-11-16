@@ -4,6 +4,7 @@ from ..util import Move, State
 import numpy as np
 
 class Stratego(Task):
+    task_name = "stratego"
     def __init__(self, size=10, **kwargs):
         """
         Initializes Stratego 
@@ -24,14 +25,23 @@ class Stratego(Task):
         # initialize empty move/state vectors
         # explanations for sizes found in docstrings
         self._empty_moves = [
-            Move(np.ones((self.N, self.N, 13), dtype=bool)),
-            Move(np.ones((self.N, self.N), dtype=bool))
+            np.ones((self.N, self.N, 13), dtype=bool).view(Move),
+            np.ones((self.N, self.N), dtype=bool).view(Move)
         ]
         
-        self._empty_state = State(np.ones((self.N, self.N, 2, 13), dtype=bool))
+        for i in range(len(self._empty_moves)):
+            self._empty_moves[i].task_name = self.task_name
+            self._empty_moves[i].phase = i
+        
+        self._empty_moves[0].state_type = STATE_TYPE_OPTIONS_TO_INDEX['deeprect']
+        self._empty_moves[1].state_type = STATE_TYPE_OPTIONS_TO_INDEX['rect']
+        
+        self._empty_state = np.ones((self.N, self.N, 2, 13), dtype=bool).view(State)
+        self._empty_state.task_name = self.task_name
+        self._empty_state.state_type = STATE_TYPE_OPTIONS_TO_INDEX['deeprect']
         
         self._moveable_mask = np.ndarray([
-            1, # 10
+            1, #(M)arshall
             1, # 9
             1, # 8
             1, # 7
@@ -40,10 +50,10 @@ class Stratego(Task):
             1, # 4
             1, # 3 
             1, # 2
-            1, # Spy
-            0, # Bomb
-            0, # Flag
-            0, # Hazard
+            1, #(S)py
+            0, #(B)omb
+            0, #(F)lag
+            0, #(H)azard
         ])
         
     
@@ -216,13 +226,17 @@ class Stratego(Task):
         
         That comes out to an (N, N, 2, 13) ndarray for both phases
         """
-        
-        return self._empty_state
+        cpy = self._empty_state[:]
+        cpy.phase = phase
+        return cpy
        
     def _contains_friendly_piece(self, state, r, c):
         return state[r, c, state.next_player].any()
         
-    def get_legal_moves(self, state, player):
+    def _contains_attackable_piece(self, state, r, c):
+        return state[r, c, 1-state.next_player, :12].any()
+        
+    def get_legal_moves(self, state):
         """
         Gets a move vector mask for all the legal moves for a state
         
@@ -234,26 +248,72 @@ class Stratego(Task):
         -------
         Move
             A move vector with 1s in the place where the state's `next_player` can go
+            
+        Notes
+        -----
+        Like chess, stratego doesn't really have 
         """
         
         if state.phase == 0:
-            return Move(np.fromfunction(
-                lambda r, c, p: (state.next_player == 0 and r < self.N//2-1 or state.next_player == 1 and r > self.N//2) and not self._contains_friendly_piece(state, r, c), 
+            legal = np.fromfunction(
+                lambda r, c, p:
+                    (
+                        state.next_player == 0 and r < self.N//2-1 or \
+                        state.next_player == 1 and r > self.N//2 \
+                    ) and not self._contains_friendly_piece(state, r, c), 
                 self.empty_move(0).shape
                 dtype=bool
-            ))
+            ).view(Move)
+            
+            legal.phase = 0
+            legal.task_name = state.task_name
+            legal.state_type = self.empty_move(0).state_type
+            
+            return legal
+            
         elif state.phase == 1:
             legal = self.empty_move(1)*0
+            legal.phase = 1
+            legal.next_player = state.next_player
+            legal.task_name = state.task_name
+            legal.state_type = self.empty_move(1).state_type
             
             for r in range(self.N):
                 for c in range(self.N):
                     if (state[r, c, state.next_player] | self._moveable_mask).any():
                         if state[r, c, state.next_player, 8]:
                             # Scout piece, handle accordingly
-                        else:
+                            placed = False
                             for i, j in ((0,1),(0,-1),(1,0),(-1,0)):
-                                
-                        
+                                for dist in range(self.N):
+                                    rc, cc = r+i*dist, c+j*dist
+                                    if not (0<=rc<self.N and 0<=cc<self.N): break
+                                    if not state[rc, cc].any():
+                                        # Nothing there, can move to that spot
+                                        legal[rc, cc] = 1
+                                        placed = True
+                                        for ii, jj in ((0,1),(0,-1),(1,0),(-1,0)):
+                                            rcc, ccc = rc+ii, cc+jj
+                                            if (0<=rcc<self.N and 0<=ccc<self.N) \ # in bounds
+                                                and self._contains_attackable_piece(state, rcc, ccc):
+                                                # Scouts can move and attack on the same turn
+                                                legal[rcc, ccc] = 1
+                                    else:
+                                        # Hits a blockage, cannot move farther in that direction
+                                        break
+                            if placed:
+                                # legal[r, c] = 1
+                                pass
+                        else:
+                            placed = False
+                            for i, j in ((0,1),(0,-1),(1,0),(-1,0)):
+                                if not self._contains_friendly_piece(state, r+i, c+j):    # Due to the way hazards are handled, this works
+                                    legal[r+i, c+j] = 1
+                                    placed = True
+                            if placed:
+                                # legal[r, c] = 1
+                                pass
+            return legal
         else:
             return None
         
