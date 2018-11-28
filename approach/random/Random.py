@@ -1,17 +1,14 @@
-from ..util import State, Move, Game, History
+from ..Approach import Approach
 
-class Approach:
+import numpy as np
+
+class Random(Approach):
     def __init__(self, approach_name="empty_approach"):
         """
-        Initializes an approach before
+        Initializes the approach before
         it applies itself to a task
-        
-        Parameters
-        ----------
-        approach_name : str
-            Name of the approach, used for printing
         """
-        self.approach_name = approach_name
+        super().__init__("random")
         
     def init_to_task(self, task):
         """
@@ -31,6 +28,12 @@ class Approach:
             For daisy-chaining purposes. Other methods return 
             self for the same reason
         """
+        
+        self._move_shapes = []
+        self.task = task
+        
+        for x in range(task.num_phases):
+            self._move_shapes.append(task.empty_move(x).shape)
         
         # Returning self so that constructs like
         # `ai = CustomApproach(args).init_to_task(Task(more_args))`
@@ -53,14 +56,21 @@ class Approach:
         move : Move
             The move object containing the move information. Size and
             shape varies per Task.
+            
+        Notes
+        -----
+        In this Approach, the move vector returned is random numbers on
+        [0, 1) in any spot a legal move can be found.
         """
         
-        return None
+        return self.task.get_legal_moves(state) & np.random.rand(*self._move_shapes[state.phase])
         
     def load_weights(self, filename):
         """
         Loads a previous Approach state from a file. Just the
         weights, history is loaded separately.
+        
+        Because this is Random, this method does nothing.
         
         Parameters
         ----------
@@ -71,6 +81,10 @@ class Approach:
         Returns
         -------
         self
+        
+        Notes
+        -----
+        Because this is Random, this method does nothing.
         """
         
         return self
@@ -78,6 +92,8 @@ class Approach:
     def save_weights(self, filename):
         """
         Saves the weights of the current state to a file.
+        
+        Because this is Random, this method does nothing
         
         Parameters
         ----------
@@ -87,6 +103,10 @@ class Approach:
         Returns
         -------
         self
+        
+        Notes
+        -----
+        Because this is Random, this method does nothing.
         """
         
         return self
@@ -106,6 +126,10 @@ class Approach:
         Returns
         -------
         self
+        
+        Notes
+        -----
+        Because this is Random, this method does nothing.
         """
         
         return self
@@ -123,6 +147,10 @@ class Approach:
         Returns
         -------
         self
+        
+        Notes
+        -----
+        Because this is Random, this method does nothing.
         """
         
         return self
@@ -140,6 +168,10 @@ class Approach:
         In implementations, can take custom arguments here in a single dict
         or have arguments passed in an earlier initialization phase.
         Any settings passed in here are expected to override default settings.
+        
+        Notes
+        -----
+        Because this is Random, this method does nothing.
         """
         pass
         
@@ -153,6 +185,10 @@ class Approach:
         -------
         score : float
             ELO, win percentage, other number where higher is better
+            
+        Notes
+        -----
+        Because this is Random, this method always returns the value 1.0
         """
         
-        return None
+        return 1.0
