@@ -78,6 +78,9 @@ class Move(State):
     """
     pass
     
+    
+class BadMoveException(Exception): pass
+    
 class History(np.ndarray):
     """
     Notes
