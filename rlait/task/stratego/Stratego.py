@@ -401,6 +401,19 @@ class Stratego(Task):
 
         return cpy
 
+    def _move_value(self, legal_moves):
+        def _internal_move_value(pair):
+            a, b = pair
+            return \
+                (
+                    legal_moves[a] !=0 and \
+                    legal_moves[b] != 0 \
+                ) * ( \
+                    legal_moves[a] + legal_moves[b] \
+                )
+        return _internal_move_value
+
+
     def apply_move(self, move, state):
         """
         Applies a move to a state, returning an updated state
@@ -488,10 +501,12 @@ class Stratego(Task):
             if np.sum(self.get_legal_moves(nstate)) == 0:
                 nstate.phase = 1
             return nstate
+
         elif state.phase == 1:
-            indexes = np.unravel_index(np.argmax(legal), legal.shape)
-            pair_value = lambda a: legal[a[0]][state.next_player] + legal[a[1]][state.next_player]
-            pairs = sorted(filter(pair_value, combinations(indexes, 2)), key=pair_value)
+            indexes = np.unravel_index(np.argsort(legal, axis=None), legal.shape)
+            pair_value = self._move_value(legal)
+            pairs = sorted(filter(pair_value, combinations(list(zip(*indexes))[::-1], 2)), key=pair_value)
+            found_move = False
             for pair in pairs:
                 start, end = pair
                 startw, endw = state[start], state[end]
@@ -503,9 +518,24 @@ class Stratego(Task):
                     # illegal moves, check the next pair
                     continue
 
+                my = abs(start[0]-end[0])
+                mx = abs(start[1]-end[1])
+                piece = np.argmax(startw[:, state.next_player])
+
+                if piece == 8: # scouts are special
+                    if endw[:, self._other_player(state.next_player)].any():
+                        # pieces attack each other
+                        attacker = piece
+                        defender = np.argmax(endw[:, self._other_player(state.next_player)])
+                else:
+                    if mx > 1 or my > 1 \
+                       or (mx==1 and my==1):
+                        # regular pieces can't move more than once space
+                        continue
+
                 if endw[:, self._other_player(state.next_player)].any():
                     # pieces attack each other
-                    attacker = np.argmax(startw[:, state.next_player])
+                    attacker = piece
                     defender = np.argmax(endw[:, self._other_player(state.next_player)])
 
                     if defender == 10 and attacker == 7 or \
@@ -543,21 +573,26 @@ class Stratego(Task):
                         nstate[end][-1, self._other_player(state.next_player)] = 1
                 else:
                     # piece just moves
-                    piece = np.argmax(startw[:, state.next_player])
                     nstate[start][piece, state.next_player] = 0
                     nstate[end][piece, state.next_player] = 1
                     # copy Seen? flag
                     nstate[end][-1, state.next_player] = nstate[start][-1, state.next_player]
                     nstate[start][-1, state.next_player] = 0
                     nstate.next_player = self._other_player(state.next_player)
+
                 print(start, end)
+                found_move = True
                 break
 
+            if not found_move:
+                raise BadMoveException("Out of all the pairs analyzed, no legal moves found.")
+                return None
             # always return
             nstate.next_player = self._other_player(state.next_player)
             return nstate
 
         else:
+            raise BadMoveException("{} phase {} doesn't exist".format(self.task_name, state.phase))
             return None
 
     def is_terminal_state(self, state):
