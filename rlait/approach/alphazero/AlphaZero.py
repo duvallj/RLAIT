@@ -2,13 +2,56 @@ from ..Approach import Approach
 
 import numpy as np
 
-class Random(Approach):
-    def __init__(self, approach_name="random"):
+class AlphaZero(Approach):
+    def __init__(self, argdict, approach_name="alphazero"):
         """
-        Initializes the approach before
+        Initializes an approach before
         it applies itself to a task
+
+        Parameters
+        ----------
+        argdict : rlait.util.misc.dotdict
+            A dictionary containing all the extra arguments that AlphaZero uses.
+            Fully explained in the Notes section
+        approach_name : str
+            Name of the approach, used for printing
+
+        Notes
+        -----
+        Full list of possible arguments that can be provided in argdict,
+        as well as their default values:
+
+        * numEps : int (30)
+            The number of playout episodes to run per training iteration
+        * tempThreshold : int (15)
+            The number of moves to make using weighted plays instead of maximum
+            plays when training
+        * updateThreshold : float (0.6)
+            ??? TODO: figure this out
+        * maxlenOfQueue : int (200000)
+            ??? TODO: figure this out
+        * numMCTSSims : int (30)
+            The number of times to run MCTS per move during self-play and actual play
+        * arenaCompare : int (11)
+            The number of games to play against the previous best AI at the end
+            of a training iteration
+        * cpuct : float (1.0)
+            A factor that determines how likely the MCTS is to explore. (TODO: explain it better)
+
+        * load_checkpoint : bool (False)
+            Do we load a checkpoint?
+        * checkpoint : str (None)
+            Checkpoint to load. Must be set if `load_checkpoint` is set, should
+            be a file path relative to the below directory.
+        * checkpoint_dir : str ("./checkpoints")
+            Folder to store the checkpoints in. Must be an absolute path or a
+            path relative to the location of this file.
+        * numItersForTrainExamplesHistory : int(30)
+            The number of past iterations to store in a single history file.
         """
         super().__init__(approach_name)
+
+        self.args = argdict
 
     def init_to_task(self, task):
         """
@@ -28,12 +71,6 @@ class Random(Approach):
             For daisy-chaining purposes. Other methods return
             self for the same reason
         """
-
-        self._move_shapes = []
-        self.task = task
-
-        for x in range(task.num_phases):
-            self._move_shapes.append(task.empty_move(x).shape)
 
         # Returning self so that constructs like
         # `ai = CustomApproach(args).init_to_task(Task(more_args))`
@@ -56,24 +93,14 @@ class Random(Approach):
         move : Move
             The move object containing the move information. Size and
             shape varies per Task.
-
-        Notes
-        -----
-        In this Approach, the move vector returned is random numbers on
-        [0, 1) in every spot.
         """
 
-        #legal = self.task.get_legal_moves(state)
-        move = np.random.rand(*self._move_shapes[state.phase])
-
-        return move #* legal
+        return None
 
     def load_weights(self, filename):
         """
         Loads a previous Approach state from a file. Just the
         weights, history is loaded separately.
-
-        Because this is Random, this method does nothing.
 
         Parameters
         ----------
@@ -84,10 +111,6 @@ class Random(Approach):
         Returns
         -------
         self
-
-        Notes
-        -----
-        Because this is Random, this method does nothing.
         """
 
         return self
@@ -95,8 +118,6 @@ class Random(Approach):
     def save_weights(self, filename):
         """
         Saves the weights of the current state to a file.
-
-        Because this is Random, this method does nothing
 
         Parameters
         ----------
@@ -106,10 +127,6 @@ class Random(Approach):
         Returns
         -------
         self
-
-        Notes
-        -----
-        Because this is Random, this method does nothing.
         """
 
         return self
@@ -129,10 +146,6 @@ class Random(Approach):
         Returns
         -------
         self
-
-        Notes
-        -----
-        Because this is Random, this method does nothing.
         """
 
         return self
@@ -150,10 +163,6 @@ class Random(Approach):
         Returns
         -------
         self
-
-        Notes
-        -----
-        Because this is Random, this method does nothing.
         """
 
         return self
@@ -171,10 +180,6 @@ class Random(Approach):
         In implementations, can take custom arguments here in a single dict
         or have arguments passed in an earlier initialization phase.
         Any settings passed in here are expected to override default settings.
-
-        Notes
-        -----
-        Because this is Random, this method does nothing.
         """
         pass
 
@@ -188,10 +193,6 @@ class Random(Approach):
         -------
         score : float
             ELO, win percentage, other number where higher is better
-
-        Notes
-        -----
-        Because this is Random, this method always returns the value 1.0
         """
 
-        return 1.0
+        return None
