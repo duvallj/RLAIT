@@ -360,8 +360,10 @@ class Stratego(Task):
             return None
 
     def _mask_hidden_pieces(self, piece_vec):
-        if not piece_vec[-1]:
+        if piece_vec.any() and not piece_vec[-1]:
             return self._masked_move
+        else:
+            return piece_vec
 
     def get_canonical_form(self, state):
         """
@@ -388,16 +390,15 @@ class Stratego(Task):
         be stateless and only operate on the state data passed in we need to do this.
         """
 
-        cpy = state[:]
+        cpy = state.copy()
 
         cpy[:, :, :, self._other_player(state.next_player)] = np.apply_along_axis(
             self._mask_hidden_pieces, 2,
             cpy[:, :, :, self._other_player(state.next_player)]
         )
 
-        if cpy.next_player == 1:
-            # reverse order of columns, rows, and player vectors
-            cpy = cpy[::-1, ::-1, ::-1]
+        # don't reverse order of columns and rows to make move
+        # parsing better
 
         return cpy
 
@@ -526,7 +527,7 @@ class Stratego(Task):
                     if mx > 1 and my > 1:
                         # illegal motion
                         continue
-                    if mx > 1:
+                    if mx > my:
                         if not endw[:, self._other_player(state.next_player)].any() \
                            and my > 0:
                             continue
@@ -541,7 +542,7 @@ class Stratego(Task):
                             if state[start[0], x, :, :].any(): # there is a piece in the way of motion
                                 not_good = True
                         if not_good: continue
-                    elif my > 1:
+                    elif my > mx:
                         if not endw[:, self._other_player(state.next_player)].any() \
                            and mx > 0:
                             continue
@@ -556,6 +557,10 @@ class Stratego(Task):
                             if state[y, start[1], :, :].any(): # there is a piece in the way of motion
                                 not_good = True
                         if not_good: continue
+                    elif mx==1 and my==1 and \
+                        not endw[:, self._other_player(state.next_player)].any():
+                         # can't move diagonally w/o attacking
+                         continue
                 else:
                     if mx > 1 or my > 1 \
                        or (mx==1 and my==1):
