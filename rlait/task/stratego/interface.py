@@ -37,13 +37,16 @@ def visualize_board(state):
                 v = np.argmax(spot[:13, state.next_player])
                 strout += " " + piece_to_str[v]
             elif spot[:13, task._other_player(state.next_player)].any():
-                if True: #spot[-1, task._other_player(state.next_player)]:
+                if spot[-1, task._other_player(state.next_player)]:
                     v = np.argmax(spot[:13, task._other_player(state.next_player)])
                     strout += "-" + piece_to_str[v].lower()
                 else:
                     strout += " ?"
             else:
-                strout += " ."
+                if spot[-1, task._other_player(state.next_player)]:
+                    strout += " !"
+                else:
+                    strout += " ."
             strout += " "
         strout += "\n"
     state.next_player = backup_next_player
@@ -56,7 +59,7 @@ def parse_move(movestr, state):
         if state.phase == 0:
             x = int(movestr[0])
             y = int(movestr[1])
-            assert movestr[2] == ':'
+            assert movestr[2] == ';'
             p = movestr[3]
             outmove[y, x, str_to_piece[p]] = 1
         elif state.phase == 1:
@@ -71,10 +74,10 @@ def parse_move(movestr, state):
             print("Error: state malformed?")
             return None
     except:
-        print("Error: move formatted incorrectly. Must be in format 01:2 for first phase, 01,23 for second phase")
+        print("Error: move formatted incorrectly. Must be in format 01;2 for first phase, 01,23 for second phase")
         return None
 
-    if not (task.get_legal_moves(state) & outmove).any():
+    if not (outmove * task.get_legal_moves(state)).any():
         print("Error: move is illegal. Try again.")
         return None
     else:
@@ -89,6 +92,11 @@ def main():
     while not task.is_terminal_state(board):
         print("To move: {}".format(board.next_player))
         board = task.apply_move(ai.get_move(board), board)
+        print(visualize_board(board))
+        player_move = None
+        while player_move is None:
+            player_move = parse_move(input("Enter move: "), board)
+        board = task.apply_move(player_move, board)
         print(visualize_board(board))
 
     print('The winner is player {}'.format(task.get_winners(board)))

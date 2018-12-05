@@ -325,7 +325,7 @@ class Stratego(Task):
                             # Scout piece, handle accordingly
                             placed = False
                             for i, j in ((0,1),(0,-1),(1,0),(-1,0)):
-                                for dist in range(self.N):
+                                for dist in range(1, self.N):
                                     rc, cc = r+i*dist, c+j*dist
                                     if not (0<=rc<self.N and 0<=cc<self.N): break
                                     if not state[rc, cc].any():
@@ -413,7 +413,6 @@ class Stratego(Task):
                 )
         return _internal_move_value
 
-
     def apply_move(self, move, state):
         """
         Applies a move to a state, returning an updated state
@@ -488,7 +487,8 @@ class Stratego(Task):
             return None
 
         nstate = state.copy()
-        legal = move * self.get_legal_moves(state)
+        legal_mask = self.get_legal_moves(state)
+        legal = move * legal_mask
         if np.sum(legal) == 0:
             raise BadMoveException("No legal moves found")
             return None
@@ -523,10 +523,39 @@ class Stratego(Task):
                 piece = np.argmax(startw[:, state.next_player])
 
                 if piece == 8: # scouts are special
-                    if endw[:, self._other_player(state.next_player)].any():
-                        # pieces attack each other
-                        attacker = piece
-                        defender = np.argmax(endw[:, self._other_player(state.next_player)])
+                    if mx > 1 and my > 1:
+                        # illegal motion
+                        continue
+                    if mx > 1:
+                        if not endw[:, self._other_player(state.next_player)].any() \
+                           and my > 0:
+                            continue
+
+                        not_good = False
+                        direction = -1 if start[1] > end[1] else 1
+                        for x in range(
+                           start[1]+direction,
+                           end[1] + (my > 0), # go to the end if attacking sideways
+                           direction
+                           ):
+                            if state[start[0], x, :, :].any(): # there is a piece in the way of motion
+                                not_good = True
+                        if not_good: continue
+                    elif my > 1:
+                        if not endw[:, self._other_player(state.next_player)].any() \
+                           and mx > 0:
+                            continue
+
+                        not_good = False
+                        direction = -1 if start[0] > end[0] else 1
+                        for y in range(
+                           start[0]+direction,
+                           end[0] + (mx > 0), # go to the end if attacking sideways
+                           direction
+                           ):
+                            if state[y, start[1], :, :].any(): # there is a piece in the way of motion
+                                not_good = True
+                        if not_good: continue
                 else:
                     if mx > 1 or my > 1 \
                        or (mx==1 and my==1):
@@ -538,10 +567,15 @@ class Stratego(Task):
                     attacker = piece
                     defender = np.argmax(endw[:, self._other_player(state.next_player)])
 
+                    # in order:
+                    # bomb checking
+                    # marshall-spy checking
+                    # flag checking
+                    # heirarchy checking, except bombs
                     if defender == 10 and attacker == 7 or \
-                       defender == 1  and attacker == 9 or \
+                       defender == 0  and attacker == 9 or \
                        defender == 11 or \
-                       attacker < defender:
+                       attacker < defender and defender != 10:
                         # attacker wins
                         # therefore, attacker moves
                         nstate[start][attacker, state.next_player] = 0
@@ -580,7 +614,7 @@ class Stratego(Task):
                     nstate[start][-1, state.next_player] = 0
                     nstate.next_player = self._other_player(state.next_player)
 
-                print(start, end)
+                print(start, "->", end)
                 found_move = True
                 break
 
@@ -642,7 +676,7 @@ class Stratego(Task):
            or not state[:, :, :10, state.next_player].any():
             return set((self._other_player(state.next_player),))
         if not state[:, :, 11, self._other_player(state.next_player)].any() \
-           or not state[:, :, :10, self._other_player(state.next_player)]:
+           or not state[:, :, :10, self._other_player(state.next_player)].any():
             return set((state.next_player,))
 
         return set()
