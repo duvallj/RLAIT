@@ -145,3 +145,18 @@ class Task:
         """
 
         return None
+
+    def string_respresentation(self, state):
+        """
+        Returns a string representation of a board, fit for printing and/or caching
+
+        Parameters
+        ----------
+        state : State
+
+        Returns
+        -------
+        str
+        """
+
+        return None

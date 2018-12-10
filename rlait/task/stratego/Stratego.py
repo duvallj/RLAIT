@@ -6,6 +6,24 @@ from itertools import combinations
 import numpy as np
 
 class Stratego(Task):
+
+    str_to_piece = {
+        'M': 0,
+        '9': 1,
+        '8': 2,
+        '7': 3,
+        '6': 4,
+        '5': 5,
+        '4': 6,
+        '3': 7,
+        '2': 8,
+        'S': 9,
+        'B': 10,
+        'F': 11,
+        'H': 12,
+    }
+    piece_to_str = dict(((self.str_to_piece[key], key) for key in self.str_to_piece))
+
     def __init__(self, size=10, **kwargs):
         """
         Initializes Stratego
@@ -685,3 +703,39 @@ class Stratego(Task):
             return set((state.next_player,))
 
         return set()
+
+    def string_respresentation(self, state):
+        """
+        Returns a string representation of a board, fit for printing and/or caching
+
+        Parameters
+        ----------
+        state : State
+
+        Returns
+        -------
+        str
+        """
+        strout = "   " + "  ".join(map(str, range(N))) + "\n"
+        for y in range(N):
+            strout += str(y) + " "
+            for x in range(N):
+                spot = state[y, x]
+                if spot[:13, state.next_player].any():
+                    v = np.argmax(spot[:13, state.next_player])
+                    strout += " " + piece_to_str[v]
+                elif spot[:13, task._other_player(state.next_player)].any():
+                    if spot[-1, task._other_player(state.next_player)]:
+                        strout += "-"
+                    else:
+                        strout += "?"
+                    v = np.argmax(spot[:13, task._other_player(state.next_player)])
+                    strout += piece_to_str[v].lower()
+                else:
+                    if spot[-1, task._other_player(state.next_player)]:
+                        strout += " !"
+                    else:
+                        strout += " ."
+                strout += " "
+            strout += "\n"
+        return strout
