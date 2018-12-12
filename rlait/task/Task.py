@@ -50,7 +50,40 @@ class Task:
 
         return None
 
-    def get_legal_moves(self, state):
+    def iterate_all_moves(self, phase=0):
+        """
+        Iterates over all possible moves, even illegal ones, for a given phase.
+
+        Parameters
+        ----------
+        phase : int, optional
+            The phase to generate all the moves for
+
+        Yields
+        ------
+        Move
+            An expected move for that state
+        """
+
+        yield None
+
+
+    def iterate_legal_moves(self, state):
+        """
+        Iterates over all the legal moves for a given state
+
+        Parameters
+        ----------
+        state : State
+
+        Yields
+        ------
+        Move
+        """
+
+        yield None
+
+    def get_legal_mask(self, state):
         """
         Gets a move vector mask for all the legal moves for a state
 
@@ -146,7 +179,7 @@ class Task:
 
         return None
 
-    def string_respresentation(self, state):
+    def state_string_respresentation(self, state):
         """
         Returns a string representation of a board, fit for printing and/or caching
 
@@ -157,6 +190,37 @@ class Task:
         Returns
         -------
         str
+        """
+
+        return None
+
+    def move_string_representation(self, move):
+        """
+        Returns a string representation of a move, fit for printing and/or caching
+
+        Parameters
+        ----------
+        move : Move
+
+        Returns
+        -------
+        str
+        """
+
+        return None
+
+    def string_to_move(self, move_str, phase=0):
+        """
+        Returns a move given a string from `move_string_representation`
+
+        Parameters
+        ----------
+        move_str : str
+        phase : int, optional
+
+        Returns
+        -------
+        Move
         """
 
         return None

@@ -44,16 +44,17 @@ class AlphaZero(Approach):
             The number of moves to make using weighted plays instead of maximum
             plays when training
         * updateThreshold : float (0.6)
-            ??? TODO: figure this out
+            Fraction of games a challenger network needs to win in order to
+            become the new base.
         * maxlenOfQueue : int (200000)
-            ??? TODO: figure this out
+            The maximum number of training examples to train on.
         * numMCTSSims : int (30)
             The number of times to run MCTS per move during self-play and actual play
         * arenaCompare : int (11)
             The number of games to play against the previous best AI at the end
             of a training iteration
         * cpuct : float (1.0)
-            A factor that determines how likely the MCTS is to explore. (TODO: explain it better)
+            A factor that determines how likely the MCTS is to explore.
 
         * load_checkpoint : bool (False)
             Do we load a checkpoint?
@@ -162,17 +163,20 @@ class AlphaZero(Approach):
         self.v = Dense(1, activation='tanh', name='v')(s_fc2)                                                                        # batch_size x 1
 
         self.outputs = []
+        self.output_sizes = []
         self.action_sizes = []
 
 
         for phase in range(task.num_phases):
             empty_move = task.empty_move(phase)
-            action_size = 1
+            output_size = 1
             for i in range(len(empty_move.shape)):
-                action_size *= empty_move.shape[i]
-            # TODO: finish this
-            output = Dense(action_size, activation='softmax', name='pi{}'.format(phase))(s_fc2)   # batch_size x self.action_size
+                output_size *= empty_move.shape[i]
+            output = Dense(output_size, activation='softmax', name='pi{}'.format(phase))(s_fc2)   # batch_size x self.output_size
             self.outputs.append(output)
+            self.output_sizes.append(output_size)
+
+            action_size = list(map(task.move_string_representation, task.iterate_all_moves(phase)))
             self.action_sizes.append(action_size)
 
         self.model = Model(inputs=self.input, outputs=self.outputs)
@@ -187,7 +191,7 @@ class AlphaZero(Approach):
     def _nn_predict(self, state):
         pass
 
-    def _search(self, canonicalBoard):
+    def _search(self, board):
         """
         This function performs one iteration of MCTS. It is recursively called
         till a leaf node is found. The action chosen at each node is one that
@@ -215,18 +219,23 @@ class AlphaZero(Approach):
         state for the current player, then its value is -v for the other player.
         """
 
+        canonicalBoard = self.task.get_canonical_form(board)
+        phase = board.phase
         s = self.task.string_respresentation(canonicalBoard)
 
         if s not in self.Es:
-            self.Es[s] = self.task.getGameEnded(canonicalBoard, 1)
+            winners = self.task.get_winners(canonicalBoard)
+
+            self.Es[s] = 1-len()
         if self.Es[s]!=0:
             # terminal node
             return -self.Es[s]
 
         if s not in self.Ps:
             # leaf node
+            # TODO: make sure _nn_predict actually generates a move with correct dimesions + type
             self.Ps[s], v = self._nn_predict(canonicalBoard)
-            valids = self.task.get_legal_moves(canonicalBoard)
+            valids = self.task.get_legal_mask(canonicalBoard)
             self.Ps[s] = self.Ps[s]*valids      # masking invalid moves
             sum_Ps_s = np.sum(self.Ps[s])
             if sum_Ps_s > 1.0:
@@ -252,12 +261,11 @@ class AlphaZero(Approach):
         """
         TODO: how do I iterate over all moves for tasks that accept an entire
         array as their input?
-        My current best idea: all_moves iterator, generates tuples that can be
-        passed into a tuple_to_move function.
+        New idea: legal_moves iterator. Change below loop+check to use that instead
         """
 
-        for a in range(self.task.getActionSize()):
-            if valids[a]:
+        for a in self.action_sizes[phase]:
+            if valids[a]: # TODO: basically, if a is a valid move. I need a better way to check...
                 if (s,a) in self.Qsa:
                     u = self.Qsa[(s,a)] + self.args.cpuct*self.Ps[s][a]*math.sqrt(self.Ns[s])/(1+self.Nsa[(s,a)])
                 else:
@@ -267,9 +275,8 @@ class AlphaZero(Approach):
                     cur_best = u
                     best_act = a
 
-        a = best_act.tobytes()
-        next_s, next_player = self.task.getNextState(canonicalBoard, 1, a)
-        next_s = self.task.getCanonicalForm(next_s, next_player)
+        a = best_act
+        next_s = self.task.apply_move(board, self.task.string_to_move(a))
 
         v = self.search(next_s)
 

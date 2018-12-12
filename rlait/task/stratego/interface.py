@@ -49,8 +49,8 @@ def main():
     while not task.is_terminal_state(board):
         print("To move: {}".format(board.next_player))
         board = task.apply_move(ai.get_move(board), board)
-        print(task.string_respresentation(board))
-        print(task.string_respresentation(task.get_canonical_form(board)))
+        print(task.state_string_respresentation(board))
+        print(task.state_string_respresentation(task.get_canonical_form(board)))
         player_move = None
         new_board = None
         while player_move is None:
@@ -62,7 +62,7 @@ def main():
                     print("Error: move is illegal due to apply_move rules. Try again.")
                     player_move = None
         board = new_board
-        print(task.string_respresentation(board))
-        print(task.string_respresentation(task.get_canonical_form(board)))
+        print(task.state_string_respresentation(board))
+        print(task.state_string_respresentation(task.get_canonical_form(board)))
 
     print('The winner is player {}'.format(task.get_winners(board)))
