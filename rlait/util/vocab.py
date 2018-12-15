@@ -63,7 +63,7 @@ class State(np.ndarray):
 
         self.task_name = getattr(obj, 'task_name', "empty_task")
         self.phase = getattr(obj, 'phase', 0)
-        self.type = getattr(obj, 'type', 0)
+        self.state_type = getattr(obj, 'state_type', 0)
         self.next_player = getattr(obj, 'next_player', 0)
 
 

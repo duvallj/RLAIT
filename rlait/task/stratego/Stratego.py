@@ -5,24 +5,24 @@ from itertools import combinations
 
 import numpy as np
 
-class Stratego(Task):
+str_to_piece = {
+    'M': 0,
+    '9': 1,
+    '8': 2,
+    '7': 3,
+    '6': 4,
+    '5': 5,
+    '4': 6,
+    '3': 7,
+    '2': 8,
+    'S': 9,
+    'B': 10,
+    'F': 11,
+    'H': 12,
+}
+piece_to_str = dict(((str_to_piece[key], key) for key in str_to_piece))
 
-    str_to_piece = {
-        'M': 0,
-        '9': 1,
-        '8': 2,
-        '7': 3,
-        '6': 4,
-        '5': 5,
-        '4': 6,
-        '3': 7,
-        '2': 8,
-        'S': 9,
-        'B': 10,
-        'F': 11,
-        'H': 12,
-    }
-    piece_to_str = dict(((self.str_to_piece[key], key) for key in self.str_to_piece))
+class Stratego(Task):
 
     def __init__(self, size=10, **kwargs):
         """
@@ -296,11 +296,10 @@ class Stratego(Task):
         if phase == 0:
             for y in range(self.N):
                 for x in range(self.N):
-                    for piece in self.str_to_piece:
-                        empty[y, x, self.str_to_piece[piece]] = 1
+                    for piece in str_to_piece:
+                        empty[y, x, str_to_piece[piece]] = 1
                         yield empty.copy()
-                        empty[y, x, self.str_to_piece[piece]] = 0
-            raise StopIteration
+                        empty[y, x, str_to_piece[piece]] = 0
         elif phase == 1:
             for y1 in range(self.N):
                 for x1 in range(self.N):
@@ -322,12 +321,10 @@ class Stratego(Task):
                             yield empty.copy()
                             empty[y2, x2] = 0
                     empty[y1, x1] = 0
-            raise StopIteration
         else:
             yield None
-            raise StopIteration
 
-    def iterate_legal_moves(self, state):
+    def iterate_legal_moves(self, state, move=None):
         """
         Iterates over all the legal moves for a given state
 
@@ -340,86 +337,97 @@ class Stratego(Task):
         Move
         """
 
-        outmove = self.empty_move(state.phase)
+        outmove = self.empty_move(state.phase) * 0
 
-        legal_mask = self.get_legal_mask(state)
-        legal = move * legal_mask
+        legal = self.get_legal_mask(state)
+        if move is not None:
+            legal = move * legal
         if np.sum(legal) == 0:
             raise BadMoveException("No legal moves found")
 
         if state.phase == 0:
-            # do stuff
-            pass
+            # This just gets a list of all indexes where legal is 1, ok
+            # for iterating with just one place
+            rl, cl, pl = np.unravel_index(np.argsort(legal, axis=None)[::-1], legal.shape)
+            for r, c, p in zip(rl, cl, pl):
+                if legal[r, c, p]:
+                    outmove[r, c, p] = 1
+                    yield outmove.copy()
+                    outmove[r, c, p] = 0
         elif state.phase == 1:
-            # do the below stuff
-            pass
+            # we need to have more complicated stuff for legal moves
+            # where it takes two places as a move
+            indexes = np.unravel_index(np.argsort(legal, axis=None), legal.shape)
+            pair_value = self._move_value(legal)
+            pairs = list(sorted(filter(pair_value, combinations(zip(*indexes), 2)), key=pair_value))[::-1]
+
+            for pair in pairs:
+                start, end = pair
+                startw, endw = state[start], state[end]
+                if not startw[:, state.next_player].any():
+                    startw, endw = endw, startw
+                    start, end = end, start
+                if not startw[:, state.next_player].any() \
+                   or endw[:, state.next_player].any():
+                    # illegal moves, check the next pair
+                    continue
+
+                my = abs(start[0]-end[0])
+                mx = abs(start[1]-end[1])
+                piece = np.argmax(startw[:, state.next_player])
+
+                if piece == 8: # scouts are special
+                    if mx > 1 and my > 1:
+                        # illegal motion
+                        continue
+                    if mx > my:
+                        if not endw[:, self._other_player(state.next_player)].any() \
+                           and my > 0:
+                            continue
+
+                        not_good = False
+                        direction = -1 if start[1] > end[1] else 1
+                        for x in range(
+                           start[1]+direction,
+                           end[1] + (my > 0), # go to the end if attacking sideways
+                           direction
+                           ):
+                            if state[start[0], x, :, :].any(): # there is a piece in the way of motion
+                                not_good = True
+                        if not_good: continue
+                    elif my > mx:
+                        if not endw[:, self._other_player(state.next_player)].any() \
+                           and mx > 0:
+                            continue
+
+                        not_good = False
+                        direction = -1 if start[0] > end[0] else 1
+                        for y in range(
+                           start[0]+direction,
+                           end[0] + (mx > 0), # go to the end if attacking sideways
+                           direction
+                           ):
+                            if state[y, start[1], :, :].any(): # there is a piece in the way of motion
+                                not_good = True
+                        if not_good: continue
+                    elif mx==1 and my==1 and \
+                        not endw[:, self._other_player(state.next_player)].any():
+                         # can't move diagonally w/o attacking
+                         continue
+                else:
+                    if mx > 1 or my > 1 \
+                       or (mx==1 and my==1):
+                        # regular pieces can't move more than once space
+                        continue
+
+                # if we've made it this far, that means the move is legal
+                outmove[start] = 1
+                outmove[end] = 1
+                yield outmove.copy()
+                outmove[start] = 0
+                outmove[end] = 0
         else:
             raise TypeError("State phase {} is out of bounds for {}".format(state.phase, self.task_name))
-
-        indexes = np.unravel_index(np.argsort(legal, axis=None), legal.shape)
-        pair_value = self._move_value(legal)
-        pairs = list(sorted(filter(pair_value, combinations(zip(*indexes), 2)), key=pair_value))[::-1]
-
-        for pair in pairs:
-            start, end = pair
-            startw, endw = state[start], state[end]
-            if not startw[:, state.next_player].any():
-                startw, endw = endw, startw
-                start, end = end, start
-            if not startw[:, state.next_player].any() \
-               or endw[:, state.next_player].any():
-                # illegal moves, check the next pair
-                continue
-
-            my = abs(start[0]-end[0])
-            mx = abs(start[1]-end[1])
-            piece = np.argmax(startw[:, state.next_player])
-
-            if piece == 8: # scouts are special
-                if mx > 1 and my > 1:
-                    # illegal motion
-                    continue
-                if mx > my:
-                    if not endw[:, self._other_player(state.next_player)].any() \
-                       and my > 0:
-                        continue
-
-                    not_good = False
-                    direction = -1 if start[1] > end[1] else 1
-                    for x in range(
-                       start[1]+direction,
-                       end[1] + (my > 0), # go to the end if attacking sideways
-                       direction
-                       ):
-                        if state[start[0], x, :, :].any(): # there is a piece in the way of motion
-                            not_good = True
-                    if not_good: continue
-                elif my > mx:
-                    if not endw[:, self._other_player(state.next_player)].any() \
-                       and mx > 0:
-                        continue
-
-                    not_good = False
-                    direction = -1 if start[0] > end[0] else 1
-                    for y in range(
-                       start[0]+direction,
-                       end[0] + (mx > 0), # go to the end if attacking sideways
-                       direction
-                       ):
-                        if state[y, start[1], :, :].any(): # there is a piece in the way of motion
-                            not_good = True
-                    if not_good: continue
-                elif mx==1 and my==1 and \
-                    not endw[:, self._other_player(state.next_player)].any():
-                     # can't move diagonally w/o attacking
-                     continue
-            else:
-                if mx > 1 or my > 1 \
-                   or (mx==1 and my==1):
-                    # regular pieces can't move more than once space
-                    continue
-
-            # if we've made it this far, that means the move is legal
 
     def _contains_friendly_piece(self, state, r, c):
         return state[r, c, :, state.next_player].any()
@@ -644,13 +652,18 @@ class Stratego(Task):
         """
 
         if move.shape != self.empty_move(state.phase).shape:
-            raise TypeError("The shape of the move vector {} does not match the empty move vector for phase {}".format(move, state.phase))
+            raise TypeError("The shape of the move vector {} does not match the empty move vector for phase {}".format(move.shape, state.phase))
             return None
         if  state.shape != self.empty_state().shape:
-            raise TypeError("The shape of the state vector {} does not match the empty state vector for phase {}".format(state, state.phase))
+            raise TypeError("The shape of the state vector {} does not match the empty state vector for phase {}".format(state.shape, state.phase))
             return None
 
         nstate = state.copy()
+
+        legal_moves = self.get_legal_mask(state)
+        legal = move * legal_moves
+        if np.sum(legal) == 0:
+            raise BadMoveException("No legal moves found")
 
         if state.phase == 0:
             spot = np.unravel_index(np.argmax(legal), legal.shape)
@@ -663,7 +676,11 @@ class Stratego(Task):
 
         elif state.phase == 1:
             # use iterate_legal_moves to get the first pair to check
-
+            found_move = False
+            for move in self.iterate_legal_moves(state, legal):
+                indexes = np.unravel_index(np.argpartition(legal, -2, axis=None)[-2:], legal.shape)
+                print(indexes)
+                raise TypeError("halt")
                 if endw[:, self._other_player(state.next_player)].any():
                     # pieces attack each other
                     attacker = piece
@@ -795,23 +812,23 @@ class Stratego(Task):
         -------
         str
         """
-        strout = "   " + "  ".join(map(str, range(N))) + "\n"
-        for y in range(N):
+        strout = "   " + "  ".join(map(str, range(self.N))) + "\n"
+        for y in range(self.N):
             strout += str(y) + " "
-            for x in range(N):
+            for x in range(self.N):
                 spot = state[y, x]
                 if spot[:13, state.next_player].any():
                     v = np.argmax(spot[:13, state.next_player])
                     strout += " " + piece_to_str[v]
-                elif spot[:13, task._other_player(state.next_player)].any():
-                    if spot[-1, task._other_player(state.next_player)]:
+                elif spot[:13, self._other_player(state.next_player)].any():
+                    if spot[-1, self._other_player(state.next_player)]:
                         strout += "-"
                     else:
                         strout += "?"
-                    v = np.argmax(spot[:13, task._other_player(state.next_player)])
+                    v = np.argmax(spot[:13, self._other_player(state.next_player)])
                     strout += piece_to_str[v].lower()
                 else:
-                    if spot[-1, task._other_player(state.next_player)]:
+                    if spot[-1, self._other_player(state.next_player)]:
                         strout += " !"
                     else:
                         strout += " ."
@@ -819,7 +836,7 @@ class Stratego(Task):
             strout += "\n"
         return strout
 
-    def move_string_representation(self, move):
+    def move_string_representation(self, move, state):
         """
         Returns a string representation of a move, fit for printing and/or caching
 
@@ -832,18 +849,22 @@ class Stratego(Task):
         str
         """
 
+        if state.phase != move.phase:
+            raise TypeError("Move phase {} cannot be applied to State phase {}".format(move.phase, state.phase))
+
         if state.phase == 0:
             spot = np.unravel_index(np.argmax(move), move.shape)
-            return "{0}{1};{2}".format(spot[0], spot[1], self.piece_to_str[spot[2]])
+            return "{0}{1};{2}".format(spot[0], spot[1], piece_to_str[spot[2]])
         elif state.phase == 1:
-            indexes = np.unravel_index(np.argsort(move, axis=None), move.shape)
-            pair_value = self._move_value(move)
-            pair = list(sorted(filter(pair_value, combinations(list(zip(*indexes))[::-1], 2)), key=pair_value))[-1]
-            return "{0}{1},{2}{3}".format(pair[0][0], pair[0][1], pair[1][0], pair[1][1])
+            pair = np.unravel_index(np.argsort(move, axis=None)[-2:], move.shape)
+            start, end = pair
+            if not self._contains_friendly_piece(state, start[0], start[1]):
+                start, end = end, start
+            return "{0}{1},{2}{3}".format(start[0], start[1], end[0], end[1])
         else:
             return None
 
-    def string_to_move(self, move_str):
+    def string_to_move(self, move_str, state):
         """
         Returns a move given a string from `move_string_representation`
 
@@ -856,21 +877,21 @@ class Stratego(Task):
         Move
         """
 
-        outmove = task.empty_move(state.phase) * 0
+        outmove = self.empty_move(state.phase) * 0
 
         try:
-            if phase == 0:
-                x = int(movestr[0])
-                y = int(movestr[1])
-                assert movestr[2] == ';'
-                p = movestr[3]
-                outmove[y, x, task.str_to_piece[p]] = 1
-            elif phase == 1:
-                y1 = int(movestr[0])
-                x1 = int(movestr[1])
-                assert movestr[2] == ','
-                y2 = int(movestr[3])
-                x2 = int(movestr[4])
+            if state.phase == 0:
+                y = int(move_str[0])
+                x = int(move_str[1])
+                assert move_str[2] == ';'
+                p = move_str[3]
+                outmove[y, x, str_to_piece[p]] = 1
+            elif state.phase == 1:
+                y1 = int(move_str[0])
+                x1 = int(move_str[1])
+                assert move_str[2] == ','
+                y2 = int(move_str[3])
+                x2 = int(move_str[4])
                 outmove[y1, x1] = 1
                 outmove[y2, x2] = 1
             else:

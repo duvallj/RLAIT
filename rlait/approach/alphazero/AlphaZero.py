@@ -1,9 +1,15 @@
 from ..Approach import Approach
+from ...util import STATE_TYPE_OPTION
 
 import numpy as np
 from keras.models import *
 from keras.layers import *
 from keras.optimizers import *
+
+import random
+import math
+
+EPS = 1e-8
 
 class AlphaZero(Approach):
     def __init__(self, argdict, approach_name="alphazero"):
@@ -130,7 +136,9 @@ class AlphaZero(Approach):
         # Assumes that the input board shape will remain constant between phases
         # Unfortunately, there's no good way to do this without that assumption.
 
-        empty_state = task.empty_state(0):
+        self.task = task
+
+        empty_state = task.empty_state(0)
         for phase in range(1, task.num_phases):
             try:
                 assert task.empty_state(phase).shape == empty_state.shape
@@ -162,10 +170,8 @@ class AlphaZero(Approach):
         s_fc2 = Dropout(self.args.dropout)(Activation('relu')(BatchNormalization(axis=1)(Dense(512)(s_fc1))))                        # batch_size x 1024
         self.v = Dense(1, activation='tanh', name='v')(s_fc2)                                                                        # batch_size x 1
 
-        self.outputs = []
-        self.output_sizes = []
-        self.action_sizes = []
-
+        self.outputs = [self.v]
+        self.output_sizes = [1]
 
         for phase in range(task.num_phases):
             empty_move = task.empty_move(phase)
@@ -176,10 +182,8 @@ class AlphaZero(Approach):
             self.outputs.append(output)
             self.output_sizes.append(output_size)
 
-            action_size = list(map(task.move_string_representation, task.iterate_all_moves(phase)))
-            self.action_sizes.append(action_size)
-
         self.model = Model(inputs=self.input, outputs=self.outputs)
+
 
         self._reset_mcts()
 
@@ -189,7 +193,8 @@ class AlphaZero(Approach):
         return self
 
     def _nn_predict(self, state):
-        pass
+        v, *pi = self.model.predict(np.reshape(state, (1,)+state.shape))
+        return v[0], pi[state.phase][0]
 
     def _search(self, board):
         """
@@ -221,12 +226,14 @@ class AlphaZero(Approach):
 
         canonicalBoard = self.task.get_canonical_form(board)
         phase = board.phase
-        s = self.task.string_respresentation(canonicalBoard)
+        s = self.task.state_string_respresentation(board)
 
         if s not in self.Es:
             winners = self.task.get_winners(canonicalBoard)
-
-            self.Es[s] = 1-len()
+            if winners:
+                self.Es[s] = list(winners)[0]
+            else:
+                self.Es[s] = 0
         if self.Es[s]!=0:
             # terminal node
             return -self.Es[s]
@@ -234,11 +241,12 @@ class AlphaZero(Approach):
         if s not in self.Ps:
             # leaf node
             # TODO: make sure _nn_predict actually generates a move with correct dimesions + type
-            self.Ps[s], v = self._nn_predict(canonicalBoard)
+            v, self.Ps[s] = self._nn_predict(canonicalBoard)
+            self.Ps[s] = np.reshape(self.Ps[s], self.task.empty_move(board.phase).shape)
             valids = self.task.get_legal_mask(canonicalBoard)
             self.Ps[s] = self.Ps[s]*valids      # masking invalid moves
             sum_Ps_s = np.sum(self.Ps[s])
-            if sum_Ps_s > 1.0:
+            if sum_Ps_s > 0.0:
                 self.Ps[s] /= sum_Ps_s    # renormalize
             else:
                 # if all valid moves were masked make all valid moves equally probable
@@ -264,26 +272,25 @@ class AlphaZero(Approach):
         New idea: legal_moves iterator. Change below loop+check to use that instead
         """
 
-        for a in self.action_sizes[phase]:
-            if valids[a]: # TODO: basically, if a is a valid move. I need a better way to check...
-                if (s,a) in self.Qsa:
-                    u = self.Qsa[(s,a)] + self.args.cpuct*self.Ps[s][a]*math.sqrt(self.Ns[s])/(1+self.Nsa[(s,a)])
-                else:
-                    u = self.args.cpuct*self.Ps[s][a]*math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
+        for move in self.task.iterate_legal_moves(board):
+            a = self.task.move_string_representation(move, board)
+            if (s,a) in self.Qsa:
+                u = self.Qsa[(s,a)] + self.args.cpuct*(self.Ps[s]*move).sum()*math.sqrt(self.Ns[s])/(1+self.Nsa[(s,a)])
+            else:
+                u = self.args.cpuct*(self.Ps[s]*move).sum()*math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
 
-                if u > cur_best:
-                    cur_best = u
-                    best_act = a
+            if u > cur_best:
+                cur_best = u
+                best_act = a
 
         a = best_act
-        next_s = self.task.apply_move(board, self.task.string_to_move(a))
+        next_s = self.task.apply_move(self.task.string_to_move(a, board), board)
 
-        v = self.search(next_s)
+        v = self._search(next_s)
 
         if (s,a) in self.Qsa:
             self.Qsa[(s,a)] = (self.Nsa[(s,a)]*self.Qsa[(s,a)] + v)/(self.Nsa[(s,a)]+1)
             self.Nsa[(s,a)] += 1
-
         else:
             self.Qsa[(s,a)] = v
             self.Nsa[(s,a)] = 1
@@ -291,7 +298,7 @@ class AlphaZero(Approach):
         self.Ns[s] += 1
         return -v
 
-    def get_move(self, state):
+    def get_move(self, state, temp=1):
         """
         Gets a move the AI wants to play for the passed in state.
 
@@ -309,7 +316,32 @@ class AlphaZero(Approach):
             shape varies per Task.
         """
 
-        return None
+        for i in range(self.args.numMCTSSims):
+            self._search(state)
+
+        s = self.task.state_string_respresentation(state)
+        avail_moves = list(map(lambda x: self.task.move_string_representation(x, state),
+                     self.task.iterate_legal_moves(state)))
+        counts = [self.Nsa[(s,a)] if (s,a) in self.Nsa else 0 \
+                for a in avail_moves]
+
+        probs = []
+        if temp == 0:
+            bestA = np.argmax(counts)
+            probs = [0]*len(counts)
+            probs[bestA] = 1
+        else:
+            probs = [x**(1./temp) for x in counts]
+            #mag = float(sum(probs))
+            #probs = [x/mag for x in probs]
+
+        chosen_move = random.choices(
+            population=avail_moves,
+            weights=probs,
+            k=1
+        )[0]
+
+        return self.task.string_to_move(chosen_move, state)
 
     def load_weights(self, filename):
         """
