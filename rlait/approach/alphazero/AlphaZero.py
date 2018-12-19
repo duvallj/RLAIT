@@ -1,5 +1,5 @@
 from ..Approach import Approach
-from ...util import STATE_TYPE_OPTION
+from ...util import STATE_TYPE_OPTION, dotdict
 
 import numpy as np
 from keras.models import *
@@ -75,7 +75,7 @@ class AlphaZero(Approach):
         """
         super().__init__(approach_name)
 
-        self.args = argdict
+        self.args = dotdict(argdict)
 
         self.args.lr                              = self.args.get("lr", 0.001)
         self.args.dropout                         = self.args.get("dropout", 0.3)

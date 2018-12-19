@@ -423,6 +423,10 @@ class Stratego(Task):
                 # if we've made it this far, that means the move is legal
                 outmove[start] = 1
                 outmove[end] = 1
+#                print("phase 1 yielded", self.move_string_representation(outmove, state),
+#                        mx, my, piece_to_str[piece])
+#                print("actual move:\n", outmove)
+#                print("actual state:\n", self.state_string_respresentation(state))
                 yield outmove.copy()
                 outmove[start] = 0
                 outmove[end] = 0
@@ -667,7 +671,7 @@ class Stratego(Task):
 
         if state.phase == 0:
             spot = np.unravel_index(np.argmax(legal), legal.shape)
-            print(spot)
+            #print(spot)
             nstate[spot][state.next_player] = 1
             nstate.next_player = self._other_player(state.next_player)
             if np.sum(self.get_legal_mask(nstate)) == 0:
@@ -679,8 +683,16 @@ class Stratego(Task):
             found_move = False
             for move in self.iterate_legal_moves(state, legal):
                 indexes = np.unravel_index(np.argpartition(legal, -2, axis=None)[-2:], legal.shape)
-                print(indexes)
-                raise TypeError("halt")
+                # again, whyyyyyy?
+                start, end = (indexes[0][0], indexes[1][0]), (indexes[0][1], indexes[1][1])
+
+                startw, endw = state[start], state[end]
+                if not startw[:, state.next_player].any():
+                    startw, endw = endw, startw
+                    start, end = end, start
+
+                piece = np.argmax(startw[:, state.next_player])
+
                 if endw[:, self._other_player(state.next_player)].any():
                     # pieces attack each other
                     attacker = piece
@@ -705,6 +717,7 @@ class Stratego(Task):
                         nstate[end][defender, self._other_player(state.next_player)] = 0
                         # clear Seen? flag
                         nstate[end][-1, self._other_player(state.next_player)] = 0
+                        nstate[start][-1, state.next_player] = 0
                     elif attacker == defender:
                         # they both die
                         # attacker first
@@ -733,7 +746,7 @@ class Stratego(Task):
                     nstate[start][-1, state.next_player] = 0
                     nstate.next_player = self._other_player(state.next_player)
 
-                print(start, "->", end)
+                #print(start, "->", end)
                 found_move = True
                 break
 
@@ -857,7 +870,8 @@ class Stratego(Task):
             return "{0}{1};{2}".format(spot[0], spot[1], piece_to_str[spot[2]])
         elif state.phase == 1:
             pair = np.unravel_index(np.argsort(move, axis=None)[-2:], move.shape)
-            start, end = pair
+            # please don't ask why this is a thing I have no idea but I had to do it
+            start, end = (pair[0][0], pair[1][0]), (pair[0][1], pair[1][1])
             if not self._contains_friendly_piece(state, start[0], start[1]):
                 start, end = end, start
             return "{0}{1},{2}{3}".format(start[0], start[1], end[0], end[1])

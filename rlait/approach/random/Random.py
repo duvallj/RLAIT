@@ -1,6 +1,7 @@
 from ..Approach import Approach
 
 import numpy as np
+import random
 
 class Random(Approach):
     def __init__(self, approach_name="random"):
@@ -59,14 +60,13 @@ class Random(Approach):
 
         Notes
         -----
-        In this Approach, the move vector returned is random numbers on
-        [0, 1) in every spot.
+        In this Approach, the move vector returned randomly from the task's
+        iterate_legal_moves method
         """
 
-        #legal = self.task.get_legal_moves(state)
-        move = np.random.rand(*self._move_shapes[state.phase])
+        legal_moves = list(self.task.iterate_legal_moves(state))
 
-        return move #* legal
+        return random.choice(legal_moves)
 
     def load_weights(self, filename):
         """
