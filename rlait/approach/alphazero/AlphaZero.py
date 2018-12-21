@@ -5,9 +5,14 @@ import numpy as np
 from keras.models import *
 from keras.layers import *
 from keras.optimizers import *
+from keras.utils.generic_utils import Progbar
 
 import random
 import math
+from pickle import Pickler, Unpickler
+import logging
+
+log = logging.getLogger(__name__)
 
 EPS = 1e-8
 
@@ -44,6 +49,8 @@ class AlphaZero(Approach):
             Number of features to detect in the convolutional layers
         (The number of layers, activation functions are fixed)
 
+        * startFromEp : int (0)
+            The episode number to start from. Useful if a previous run got interrupted
         * numEps : int (30)
             The number of playout episodes to run per training iteration
         * tempThreshold : int (15)
@@ -64,6 +71,10 @@ class AlphaZero(Approach):
 
         * load_checkpoint : bool (False)
             Do we load a checkpoint?
+        * prevHistory : str (None)
+            Previous history to load. Can be set if `load_checkpoint` is set. If
+            set, AlphaZero skips the first self-play iteration and jumps straight
+            to training a new network on the provided history.
         * checkpoint : str (None)
             Checkpoint to load. Must be set if `load_checkpoint` is set, should
             be a file path relative to the below directory.
@@ -84,6 +95,7 @@ class AlphaZero(Approach):
         self.args.cuda                            = self.args.get("cuda", True)
         self.args.num_channels                    = self.args.get("num_channels", 512)
 
+        self.arg.startFromEp                      = self.args.get("startFromEp", 0)
         self.args.numEps                          = self.args.get("numEps", 30)
         self.args.tempThreshold                   = self.args.get("tempThreshold", 15)
         self.args.updateThreshold                 = self.args.get("updateThreshold", 0.6)
@@ -94,8 +106,12 @@ class AlphaZero(Approach):
 
         self.args.load_checkpoint                 = self.args.get("load_checkpoint", False)
         self.args.checkpoint                      = self.args.get("checkpoint", None)
+        self.args.prevHistory                     = self.args.get("prevHistory", None)
         self.args.checkpoint_dir                  = self.args.get("checkpoint_dir", "./checkpoints")
         self.args.numItersForTrainExamplesHistory = self.args.get("numItersForTrainExamplesHistory", 30)
+
+        self.trainExamplesHistory = []
+        self.skipFirstSelfPlay = False
 
     def _reset_mcts(self):
         # Reset MCTS variables (clears cache)
@@ -107,7 +123,7 @@ class AlphaZero(Approach):
         self.Es = {}        # stores game.getGameEnded ended for board s
         self.Vs = {}        # stores game.getValidMoves for board s
 
-    def init_to_task(self, task):
+    def init_to_task(self, task, competetor=True):
         """
         Customizes an approach to work on
         a specific task
@@ -118,6 +134,10 @@ class AlphaZero(Approach):
             The Task object to customize to. Should provide
             all the necessary methods for this approach to customize,
             like length of move vectors for different phases.
+        competetor : bool (True)
+            Optional, controls whether we initialize a competetor AI for selfplay.
+            When creating a competetor, this is turned to False so we don't
+            infinitely recur.
 
         Returns
         -------
@@ -136,7 +156,13 @@ class AlphaZero(Approach):
         # Assumes that the input board shape will remain constant between phases
         # Unfortunately, there's no good way to do this without that assumption.
 
+        # TODO: Maybe use a Lambda layer to multiplex things based on a extra phase input?
+
         self.task = task
+
+        ###########################################
+        # Define network based on Task parameters #
+        ###########################################
 
         empty_state = task.empty_state(0)
         for phase in range(1, task.num_phases):
@@ -184,8 +210,30 @@ class AlphaZero(Approach):
 
         self.model = Model(inputs=self.input, outputs=self.outputs)
 
-
         self._reset_mcts()
+
+        #######################
+        # Load previous model #
+        #######################
+
+        self.iteration = self.args.startFromEp
+
+        if self.args.load_checkpoint:
+            if self.args.checkpoint is not None:
+                self.load_weights(self.args.checkpoint)
+            else:
+                try:
+                    self.load_weights(self._get_checkpoint_filename(self.iteration))
+                except:
+                    log.warn("Tried to load checkpoint from starting iteration, could not find it.")
+            if self.args.prevHistory is not None:
+                self.load_history(self.args.prevHistory)
+                self.skipFirstSelfPlay = True
+
+        if competetor:
+            self.pnet = self.__class__(self.args).init_to_task(self.task, competetor=False)
+        else:
+            self.pnet = None
 
         # Returning self so that constructs like
         # `ai = CustomApproach(args).init_to_task(Task(more_args))`
@@ -210,8 +258,8 @@ class AlphaZero(Approach):
 
         Parameters
         ----------
-        canonicalBoard : State
-            The canonicalized version of the board to search
+        board : State
+            The board to search
 
         Returns
         -------
@@ -229,7 +277,7 @@ class AlphaZero(Approach):
         s = self.task.state_string_respresentation(board)
 
         if s not in self.Es:
-            winners = self.task.get_winners(canonicalBoard)
+            winners = self.task.get_winners(board)
             if winners:
                 self.Es[s] = list(winners)[0]
             else:
@@ -240,7 +288,9 @@ class AlphaZero(Approach):
 
         if s not in self.Ps:
             # leaf node
-            # TODO: make sure _nn_predict actually generates a move with correct dimesions + type
+            # NOTE: this section is the only place canonical boards are introduced
+            # the rest of the searching takes place on non-canonical boards
+            # for ease of passing hidden information.
             v, self.Ps[s] = self._nn_predict(canonicalBoard)
             self.Ps[s] = np.reshape(self.Ps[s], self.task.empty_move(board.phase).shape)
             valids = self.task.get_legal_mask(canonicalBoard)
@@ -298,6 +348,43 @@ class AlphaZero(Approach):
         self.Ns[s] += 1
         return -v
 
+    def _get_action_prob(self, state, temp=1):
+        """
+        Returns the probabilities for each legal move given a state.
+        Also returns the legal moves themselves
+
+        Parameters
+        ----------
+            state : State
+
+        Returns
+        -------
+            probs : list(float)
+                A policy vector where the probability of the ith action is
+                proportional to Nsa[(s,a)]**(1./temp)
+            avail_moves : list(Move)
+                A list of available moves where each entry corresponds to the
+                same index in probs
+        """
+        for i in range(self.args.numMCTSSims):
+            self._search(state)
+
+        s = self.task.state_string_respresentation(state)
+        avail_moves = list(map(lambda x: self.task.move_string_representation(x, state),
+                     self.task.iterate_legal_moves(state)))
+        counts = [self.Nsa[(s,a)] if (s,a) in self.Nsa else 0 \
+                for a in avail_moves]
+
+        probs = []
+        if temp == 0:
+            bestA = np.argmax(counts)
+            probs = [0]*len(counts)
+            probs[bestA] = 1
+        else:
+            probs = [x**(1./temp) for x in counts]
+
+        return probs, avail_moves
+
     def get_move(self, state, temp=1):
         """
         Gets a move the AI wants to play for the passed in state.
@@ -316,24 +403,7 @@ class AlphaZero(Approach):
             shape varies per Task.
         """
 
-        for i in range(self.args.numMCTSSims):
-            self._search(state)
-
-        s = self.task.state_string_respresentation(state)
-        avail_moves = list(map(lambda x: self.task.move_string_representation(x, state),
-                     self.task.iterate_legal_moves(state)))
-        counts = [self.Nsa[(s,a)] if (s,a) in self.Nsa else 0 \
-                for a in avail_moves]
-
-        probs = []
-        if temp == 0:
-            bestA = np.argmax(counts)
-            probs = [0]*len(counts)
-            probs[bestA] = 1
-        else:
-            probs = [x**(1./temp) for x in counts]
-            #mag = float(sum(probs))
-            #probs = [x/mag for x in probs]
+        probs, avail_moves = self._get_action_prob(state, temp)
 
         chosen_move = random.choices(
             population=avail_moves,
@@ -359,6 +429,14 @@ class AlphaZero(Approach):
         self
         """
 
+        filepath = filename
+        if not os.path.exists(filepath):
+            filepath = os.path.join(self.args.checkpoint_dir, filename)
+            if not os.path.exists(filepath):
+                raise("No model in local file {} or path {}!".format(filename, filepath))
+
+        self.model.load_weights(filepath)
+
         return self
 
     def save_weights(self, filename):
@@ -374,6 +452,13 @@ class AlphaZero(Approach):
         -------
         self
         """
+
+        filepath = os.path.join(self.args.checkpoint_dir, filename)
+        if not os.path.exists(folder):
+            print("Checkpoint Directory does not exist! Making directory {}".format(folder))
+            os.mkdir(folder)
+
+        self.model.save_weights(filepath, overwrite=True)
 
         return self
 
@@ -394,6 +479,15 @@ class AlphaZero(Approach):
         self
         """
 
+        filepath = filename
+        if not os.path.exists(filepath):
+            filepath = os.path.join(self.args.checkpoint_dir, filename)
+            if not os.path.exists(filepath):
+                raise("No checkpoint in local file {} or path {}!".format(filename, filepath))
+
+        with open(filepath, "rb") as f:
+            self.trainExamplesHistory = Unpickler(f).load()
+
         return self
 
     def save_history(self, filename):
@@ -411,7 +505,90 @@ class AlphaZero(Approach):
         self
         """
 
+        folder = self.args.checkpoint_dir
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+        filepath = os.path.join(folder, filename)
+        with open(filepath, "wb") as f:
+            Pickler(f).dump(self.trainExamplesHistory)
+
         return self
+
+    def _get_checkpoint_filename(self, iteration):
+        return "checkpoint_{}.pth.tar".format(iteration)
+
+    def _run_one_selfplay(self):
+        trainExamples = []
+        board = self.task.empty_state(phase=0)
+        episodeStep = 0
+
+        while not self.task.is_terminal_state(board):
+            episodeStep += 1
+            temp = int(episodeStep < self.args.tempThreshold)
+
+            pi, avail_moves = self._get_action_prob(state, temp=temp)
+            # not applicable to all games, but might include later
+            #sym = self.task.getSymmetries(canonicalBoard, pi)
+            #for b,p in sym:
+
+            trainExamples.append((board, board.next_player, pi))
+
+            action = random.choices(
+                population=avail_moves,
+                weights=pi,
+                k=1
+            )[0]
+            board = self.task.apply_move(action, board)
+
+        # Game is over
+        winners = self.task.get_winners(board)
+        r = 0
+        if board.next_player in winners:
+            r = 1
+        else:
+            r = -1
+        # This might be biased towards or against ties depending on the last player
+        # to move, but in sufficiently complex games this should result in a 50/50
+        # split anyways
+        return [(board, pi, r*((-1)**(player!=board.next_player)) for board, player, pi in trainExamples]
+
+    def _run_selfplay(self):
+
+        # bookkeeping
+        log.info('------ITER ' + str(self.iteration) + '------')
+        # examples of the iteration
+        if self.iteration > self.args.startFromEp or not self.skipFirstSelfPlay:
+            iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
+            bar = Progbar(self.args.numEps)
+
+            for eps in range(self.args.numEps):
+                self._reset_mcts()
+                iterationTrainExamples += self._run_one_selfplay()
+                # bookkeeping + plot progress
+                bar.add(1)
+
+            # save the iteration examples to the history
+            self.trainExamplesHistory.append(iterationTrainExamples)
+
+        if len(self.trainExamplesHistory) > self.args.numItersForTrainExamplesHistory:
+            log.debug("len(trainExamplesHistory) =", len(self.trainExamplesHistory), " => remove the oldest trainExamples")
+            self.trainExamplesHistory.pop(0)
+        # backup history to a file
+        # NB! the examples were collected using the model from the previous iteration, so (i-1)
+        self.save_history(self._get_checkpoint_filename(self.iteration-1)+".examples")
+
+    def _train_nnet(self, examples):
+        """
+        examples: list of examples, each example is of form (board, pi, v)
+        """
+        input_boards, target_pis, target_vs = list(zip(*examples))
+        input_boards = np.asarray(input_boards)
+        target_pis = np.asarray(target_pis)
+        target_vs = np.asarray(target_vs)
+        # TODO: figure out some way to make separate phases trained separately
+        # I think I will have to have separate neural networks for every phase, gosh darn it
+        self.nnet.model.fit(x=input_boards, y=[target_pis, target_vs], batch_size=self.args.batch_size, epochs=self.args.epochs)
+
 
     def train_once(self):
         """
@@ -427,7 +604,37 @@ class AlphaZero(Approach):
         or have arguments passed in an earlier initialization phase.
         Any settings passed in here are expected to override default settings.
         """
-        pass
+
+        self._run_selfplay()
+
+        # shuffle examlpes before training
+        trainExamples = []
+        for e in self.trainExamplesHistory:
+            trainExamples.extend(e)
+        random.shuffle(trainExamples)
+
+        # training new network, keeping a copy of the old one
+        self.save_weights('temp.pth.tar')
+        self.pnet.load_weights('temp.pth.tar')
+        self.pnet._reset_mcts()
+
+        self._train_nnet(trainExamples)
+        self._reset_mcts()
+
+        log.info('PITTING AGAINST PREVIOUS VERSION')
+        # TODO: Actually implement Arena functionality
+        arena = Arena(lambda x: np.argmax(pmcts.getActionProb(x, temp=0)),
+                      lambda x: np.argmax(nmcts.getActionProb(x, temp=0)), self.game)
+        pwins, nwins, draws = arena.playGames(self.args.arenaCompare)
+
+        log.info('NEW/PREV WINS : %d / %d ; DRAWS : %d' % (nwins, pwins, draws))
+        if pwins+nwins > 0 and float(nwins)/(pwins+nwins) < self.args.updateThreshold:
+            log.info('REJECTING NEW MODEL')
+            self.load_weights('temp.pth.tar')
+        else:
+            log.info('ACCEPTING NEW MODEL')
+            self.save_weights(self._get_checkpoint_filename(self.iteration))
+            self.save_weights('best.pth.tar')
 
 
     def test_once(self):
@@ -438,7 +645,7 @@ class AlphaZero(Approach):
         Returns
         -------
         score : float
-            ELO, win percentage, other number where higher is better
+            ELO, win percentage, or another number where higher is better
         """
 
         return None
