@@ -1,3 +1,4 @@
 *.pyc
 venv
 miniconda3
+checkpoints

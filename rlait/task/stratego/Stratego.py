@@ -813,7 +813,7 @@ class Stratego(Task):
 
         return set()
 
-    def state_string_respresentation(self, state):
+    def state_string_representation(self, state):
         """
         Returns a string representation of a board, fit for printing and/or caching
 

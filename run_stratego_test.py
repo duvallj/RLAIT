@@ -14,14 +14,16 @@ def main():
     board = task.empty_state(phase=0)
     ai1 = Random().init_to_task(task)
     ai2 = AlphaZero({'numMCTSSims': 3}).init_to_task(task)
-    print(task.state_string_respresentation(board))
+    ai2.save_weights("temp.pkl")
+    ai2.load_weights("temp.pkl")
+    print(task.state_string_representation(board))
 
     while not task.is_terminal_state(board):
         print("To move: {}".format(board.next_player))
         move = ai1.get_move(board)
         print(task.move_string_representation(move, board))
         board = task.apply_move(move, board)
-        to_print = task.state_string_respresentation(board)
+        to_print = task.state_string_representation(board)
         print(to_print)
         if '!' in to_print: raise ValueError("This shouldn't happen! go figure out why")
         #print(task.state_string_respresentation(task.get_canonical_form(board)))
@@ -44,7 +46,7 @@ def main():
         print(task.move_string_representation(move, board))
         board = task.apply_move(move, board)
         #"""
-        to_print = task.state_string_respresentation(board)
+        to_print = task.state_string_representation(board)
         print(to_print)
         if '!' in to_print: raise ValueError("This shouldn't happen! go figure out why")
         #print(task.state_string_respresentation(task.get_canonical_form(board)))

@@ -6,11 +6,14 @@ from keras.models import *
 from keras.layers import *
 from keras.optimizers import *
 from keras.utils.generic_utils import Progbar
+import h5py
 
 import random
 import math
 from pickle import Pickler, Unpickler
 import logging
+import os
+import io
 
 log = logging.getLogger(__name__)
 
@@ -95,7 +98,7 @@ class AlphaZero(Approach):
         self.args.cuda                            = self.args.get("cuda", True)
         self.args.num_channels                    = self.args.get("num_channels", 512)
 
-        self.arg.startFromEp                      = self.args.get("startFromEp", 0)
+        self.args.startFromEp                     = self.args.get("startFromEp", 0)
         self.args.numEps                          = self.args.get("numEps", 30)
         self.args.tempThreshold                   = self.args.get("tempThreshold", 15)
         self.args.updateThreshold                 = self.args.get("updateThreshold", 0.6)
@@ -123,7 +126,7 @@ class AlphaZero(Approach):
         self.Es = {}        # stores game.getGameEnded ended for board s
         self.Vs = {}        # stores game.getValidMoves for board s
 
-    def init_to_task(self, task, competetor=True):
+    def init_to_task(self, task, make_competetor=True):
         """
         Customizes an approach to work on
         a specific task
@@ -155,8 +158,6 @@ class AlphaZero(Approach):
 
         # Assumes that the input board shape will remain constant between phases
         # Unfortunately, there's no good way to do this without that assumption.
-
-        # TODO: Maybe use a Lambda layer to multiplex things based on a extra phase input?
 
         self.task = task
 
@@ -199,6 +200,8 @@ class AlphaZero(Approach):
         self.outputs = [self.v]
         self.output_sizes = [1]
 
+        self.models = []
+
         for phase in range(task.num_phases):
             empty_move = task.empty_move(phase)
             output_size = 1
@@ -208,7 +211,11 @@ class AlphaZero(Approach):
             self.outputs.append(output)
             self.output_sizes.append(output_size)
 
-        self.model = Model(inputs=self.input, outputs=self.outputs)
+            self.models.append(Model(inputs=self.input, outputs=[self.v, output]))
+
+        # Doing the above instead of this because we need to have multiple models
+        # in order to train correctly. Unfortunately, that means we cannot share
+        # self.model = Model(inputs=self.input, outputs=self.outputs)
 
         self._reset_mcts()
 
@@ -230,8 +237,8 @@ class AlphaZero(Approach):
                 self.load_history(self.args.prevHistory)
                 self.skipFirstSelfPlay = True
 
-        if competetor:
-            self.pnet = self.__class__(self.args).init_to_task(self.task, competetor=False)
+        if make_competetor:
+            self.pnet = self.__class__(self.args).init_to_task(self.task, make_competetor=False)
         else:
             self.pnet = None
 
@@ -241,8 +248,8 @@ class AlphaZero(Approach):
         return self
 
     def _nn_predict(self, state):
-        v, *pi = self.model.predict(np.reshape(state, (1,)+state.shape))
-        return v[0], pi[state.phase][0]
+        v, pi = self.models[state.phase].predict(np.reshape(state, (1,)+state.shape))
+        return v[0], pi[0]
 
     def _search(self, board):
         """
@@ -316,12 +323,6 @@ class AlphaZero(Approach):
         best_act = -1
 
         # pick the action with the highest upper confidence bound
-        """
-        TODO: how do I iterate over all moves for tasks that accept an entire
-        array as their input?
-        New idea: legal_moves iterator. Change below loop+check to use that instead
-        """
-
         for move in self.task.iterate_legal_moves(board):
             a = self.task.move_string_representation(move, board)
             if (s,a) in self.Qsa:
@@ -435,7 +436,13 @@ class AlphaZero(Approach):
             if not os.path.exists(filepath):
                 raise("No model in local file {} or path {}!".format(filename, filepath))
 
-        self.model.load_weights(filepath)
+        all_model_files = []
+        with open(filepath, "rb") as f:
+            all_model_files = Unpickler(f).load()
+
+        for i in range(len(all_model_files)):
+            buf = all_model_files[i]
+            self.models[i].load_weights(buf)
 
         return self
 
@@ -454,11 +461,22 @@ class AlphaZero(Approach):
         """
 
         filepath = os.path.join(self.args.checkpoint_dir, filename)
-        if not os.path.exists(folder):
-            print("Checkpoint Directory does not exist! Making directory {}".format(folder))
-            os.mkdir(folder)
+        if not os.path.exists(self.args.checkpoint_dir):
+            print("Checkpoint Directory does not exist! Making directory {}".format(self.args.checkpoint_dir))
+            os.mkdir(self.args.checkpoint_dir)
 
-        self.model.save_weights(filepath, overwrite=True)
+        # This was the best thing I could think of to fit multiple models in one file:
+        # Keras's h5py backend supports writing data directly to a BytesIO object
+        # So, we just tell it to do that for all the models and write the resulting
+        # list to a pickle file.
+        all_model_files = []
+        for i in range(len(self.models)):
+            buf = io.BytesIO()
+            self.models[i].save_weights(buf, overwrite=True)
+            all_model_files.append(buf)
+
+        with open(filepath, "wb") as f:
+            Pickler(f).dump(all_model_files)
 
         return self
 
@@ -550,7 +568,7 @@ class AlphaZero(Approach):
         # This might be biased towards or against ties depending on the last player
         # to move, but in sufficiently complex games this should result in a 50/50
         # split anyways
-        return [(board, pi, r*((-1)**(player!=board.next_player)) for board, player, pi in trainExamples]
+        return [(board, pi, r*((-1)**(player!=board.next_player))) for board, player, pi in trainExamples]
 
     def _run_selfplay(self):
 
@@ -577,17 +595,105 @@ class AlphaZero(Approach):
         # NB! the examples were collected using the model from the previous iteration, so (i-1)
         self.save_history(self._get_checkpoint_filename(self.iteration-1)+".examples")
 
+    def _match_phase(self, phase):
+        def _internal_match_phase(a):
+            return a.phase == phase
+        return _internal_match_phase
+
     def _train_nnet(self, examples):
         """
         examples: list of examples, each example is of form (board, pi, v)
         """
         input_boards, target_pis, target_vs = list(zip(*examples))
-        input_boards = np.asarray(input_boards)
-        target_pis = np.asarray(target_pis)
-        target_vs = np.asarray(target_vs)
-        # TODO: figure out some way to make separate phases trained separately
-        # I think I will have to have separate neural networks for every phase, gosh darn it
-        self.nnet.model.fit(x=input_boards, y=[target_pis, target_vs], batch_size=self.args.batch_size, epochs=self.args.epochs)
+
+        # for each phase, filter out all the examples from that phase
+        # and train the corresponding model on them
+        for phase in range(self.task.num_phases):
+            match_phase = self._match_phase(phase)
+            f_input_boards = np.asarray(filter(match_phase, input_boards))
+            f_target_pis = np.asarray(filter(match_phase, target_pis))
+            f_target_vs = np.asarray(filter(match_phase, target_vs))
+            self.models[phase].fit(
+                x=f_input_boards,
+                y=[f_target_vs, f_target_pis],
+                batch_size=self.args.batch_size,
+                epochs=self.args.epochs
+            )
+
+    def _arena_play_once(self, first_player, second_player, verbose=False):
+        # TODO: Currently only supports 2-player games, should probably fix that
+        if verbose:
+            assert(self.task.state_string_representation)
+        board = self.task.empty_state(phase=0)
+        it = 0
+        while not self.task.is_terminal_state(board):
+            it += 1
+            if verbose:
+                print(f"Turn {it} Player {board.next_player}")
+                print(self.task.state_string_representation(board))
+
+            if board.next_player == 0:
+                move = first_player.get_move(board)
+                board = self.task.apply_move(move, board)
+            elif board.next_player == 1:
+                move = second_player.get_move(board)
+                board = self.task.apply_move(move, board)
+
+        winners = self.task.get_winners(board)
+        if verbose:
+            print(f"Game Over: Turn {it} Winners {winners}")
+            print(self.task.state_string_representation(board))
+        r = 0
+        if 0 in winners and not 1 in winners:
+            r = 1
+        elif 1 in winners and not 0 in winners:
+            r = -1
+
+        return r
+
+    def _arena_play(self, num, verbose=False):
+        """
+        Plays num games in which player 1 and 2 both start num/2 times each
+
+        Parameters
+        ----------
+            num : int
+
+        Returns
+        -------
+            oneWon : int
+                games won by player1
+            twoWon : int
+                games won by player2
+            draws:
+                games won by nobody
+        """
+        num = int(num/2)
+        eps_time = Progbar(2*num, stateful_metrics=["win_draw_ratio"])
+        oneWon = 0
+        twoWon = 0
+        draws = 0
+
+        for _ in range(num):
+            result = self._arena_play_once(self, self.pnet, verbose)
+            if result == 1:
+                oneWon += 1
+            elif result == -1:
+                twoWon += 1
+            else:
+                draws += 1
+            eps_time.add(1, {"win_draw_ratio": f"{oneWon}-{twoWon}-{draws}"})
+
+            result = self._arena_play_once(self.pnet, self, verbose)
+            if result == 1:
+                twoWon += 1
+            elif result == -1:
+                oneWon += 1
+            else:
+                draws += 1
+            eps_time.add(1, {"win_draw_ratio": f"{oneWon}-{twoWon}-{draws}"})
+
+        return oneWon, twoWon, draws
 
 
     def train_once(self):
@@ -622,10 +728,7 @@ class AlphaZero(Approach):
         self._reset_mcts()
 
         log.info('PITTING AGAINST PREVIOUS VERSION')
-        # TODO: Actually implement Arena functionality
-        arena = Arena(lambda x: np.argmax(pmcts.getActionProb(x, temp=0)),
-                      lambda x: np.argmax(nmcts.getActionProb(x, temp=0)), self.game)
-        pwins, nwins, draws = arena.playGames(self.args.arenaCompare)
+        nwins, pwins, draws = self._arena_play(self.args.arenaCompare)
 
         log.info('NEW/PREV WINS : %d / %d ; DRAWS : %d' % (nwins, pwins, draws))
         if pwins+nwins > 0 and float(nwins)/(pwins+nwins) < self.args.updateThreshold:
