@@ -11,6 +11,7 @@ import h5py
 import random
 import math
 from pickle import Pickler, Unpickler
+from collections import deque
 import logging
 import os
 import io
@@ -281,7 +282,7 @@ class AlphaZero(Approach):
 
         canonicalBoard = self.task.get_canonical_form(board)
         phase = board.phase
-        s = self.task.state_string_respresentation(board)
+        s = self.task.state_string_representation(board)
 
         if s not in self.Es:
             winners = self.task.get_winners(board)
@@ -370,7 +371,7 @@ class AlphaZero(Approach):
         for i in range(self.args.numMCTSSims):
             self._search(state)
 
-        s = self.task.state_string_respresentation(state)
+        s = self.task.state_string_representation(state)
         avail_moves = list(map(lambda x: self.task.move_string_representation(x, state),
                      self.task.iterate_legal_moves(state)))
         counts = [self.Nsa[(s,a)] if (s,a) in self.Nsa else 0 \
@@ -544,7 +545,7 @@ class AlphaZero(Approach):
             episodeStep += 1
             temp = int(episodeStep < self.args.tempThreshold)
 
-            pi, avail_moves = self._get_action_prob(state, temp=temp)
+            pi, avail_moves = self._get_action_prob(board, temp=temp)
             # not applicable to all games, but might include later
             #sym = self.task.getSymmetries(canonicalBoard, pi)
             #for b,p in sym:
@@ -556,7 +557,7 @@ class AlphaZero(Approach):
                 weights=pi,
                 k=1
             )[0]
-            board = self.task.apply_move(action, board)
+            board = self.task.apply_move(self.task.string_to_move(action, board), board)
 
         # Game is over
         winners = self.task.get_winners(board)
@@ -578,6 +579,7 @@ class AlphaZero(Approach):
         if self.iteration > self.args.startFromEp or not self.skipFirstSelfPlay:
             iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
             bar = Progbar(self.args.numEps)
+            bar.update(0)
 
             for eps in range(self.args.numEps):
                 self._reset_mcts()
@@ -670,6 +672,7 @@ class AlphaZero(Approach):
         """
         num = int(num/2)
         eps_time = Progbar(2*num, stateful_metrics=["win_draw_ratio"])
+        eps_time.update(0, values={"win_draw_ratio":"0-0-0"})
         oneWon = 0
         twoWon = 0
         draws = 0
@@ -738,7 +741,6 @@ class AlphaZero(Approach):
             log.info('ACCEPTING NEW MODEL')
             self.save_weights(self._get_checkpoint_filename(self.iteration))
             self.save_weights('best.pth.tar')
-
 
     def test_once(self):
         """
