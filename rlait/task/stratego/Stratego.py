@@ -22,9 +22,24 @@ str_to_piece = {
 }
 piece_to_str = dict(((str_to_piece[key], key) for key in str_to_piece))
 
+class SState(State):
+    def __new__(subtype, shape, dtype=float, buffer=None, offset=0,
+                strides=None, order=None,
+                move_num=0):
+        obj = super(SState, subtype).__new__(subtype, shape, dtype, buffer, offset, strides, order)
+
+        obj.move_num = move_num
+
+        return obj
+
+    def __array_finalize__(self, obj):
+        if obj is None: return
+
+        self.move_num = getattr(obj, 'move_num', 0)
+
 class Stratego(Task):
 
-    def __init__(self, size=10, **kwargs):
+    def __init__(self, size=10, max_moves=1000, **kwargs):
         """
         Initializes Stratego
 
@@ -42,6 +57,7 @@ class Stratego(Task):
         super().__init__(**kwargs)
 
         self.N = size
+        self.max_moves = max_moves
 
         # initialize empty move/state vectors
         # explanations for sizes found in docstrings
@@ -57,7 +73,7 @@ class Stratego(Task):
         self._empty_moves[0].state_type = STATE_TYPE_OPTION_TO_INDEX['deeprect']
         self._empty_moves[1].state_type = STATE_TYPE_OPTION_TO_INDEX['rect']
 
-        self._empty_state = np.zeros((self.N, self.N, 14, 2), dtype=bool).view(State)
+        self._empty_state = np.zeros((self.N, self.N, 14, 2), dtype=bool).view(SState)
         self._empty_state.task_name = self.task_name
         self._empty_state.state_type = STATE_TYPE_OPTION_TO_INDEX['deeprect']
 
@@ -663,6 +679,7 @@ class Stratego(Task):
             return None
 
         nstate = state.copy()
+        nstate.move_num += 1
 
         legal_moves = self.get_legal_mask(state)
         legal = move * legal_moves
@@ -779,6 +796,10 @@ class Stratego(Task):
         if state.phase == 0:
             # no one can win while people are still placing pieces
             return False
+
+        if state.move_num >= self.max_moves:
+            # don't play past a certain point
+            return True
 
         if np.sum(state[:, :, 11, :]) < 2:  # Someone's flag has been captured
             return True
