@@ -34,7 +34,8 @@ class SState(State):
 
     def __array_finalize__(self, obj):
         if obj is None: return
-
+        
+        super().__array_finalize__(obj)
         self.move_num = getattr(obj, 'move_num', 0)
 
 class Stratego(Task):

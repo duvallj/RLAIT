@@ -12,7 +12,7 @@ task = Stratego(N)
 
 def main():
     board = task.empty_state(phase=0)
-    ai1 = Random().init_to_task(task)
+    ai1 = AlphaZero({'numMCTSSims': 3}).init_to_task(task) #Random().init_to_task(task)
     ai2 = AlphaZero({'numMCTSSims': 3}).init_to_task(task)
     ai2.save_weights("temp.pkl")
     ai2.load_weights("temp.pkl")

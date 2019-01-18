@@ -211,8 +211,10 @@ class AlphaZero(Approach):
             output = Dense(output_size, activation='softmax', name='pi{}'.format(phase))(s_fc2)   # batch_size x self.output_size
             self.outputs.append(output)
             self.output_sizes.append(output_size)
-
-            self.models.append(Model(inputs=self.input, outputs=[self.v, output]))
+            
+            model = Model(inputs=self.input, outputs=[self.v, output])
+            model.compile(loss=['mean_squared_error', 'categorical_crossentropy'], optimizer=Adam(self.args.lr)) 
+            self.models.append(model)
 
         # Doing the above instead of this because we need to have multiple models
         # in order to train correctly. Unfortunately, that means we cannot share
