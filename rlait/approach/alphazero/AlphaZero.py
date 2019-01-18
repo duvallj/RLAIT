@@ -614,9 +614,9 @@ class AlphaZero(Approach):
         # and train the corresponding model on them
         for phase in range(self.task.num_phases):
             match_phase = self._match_phase(phase)
-            f_input_boards = np.asarray(filter(match_phase, input_boards))
-            f_target_pis = np.asarray(filter(match_phase, target_pis))
-            f_target_vs = np.asarray(filter(match_phase, target_vs))
+            f_input_boards = np.asarray(list(filter(match_phase, input_boards)))
+            f_target_pis = np.asarray(list(filter(match_phase, target_pis)))
+            f_target_vs = np.asarray(list(filter(match_phase, target_vs)))
             self.models[phase].fit(
                 x=f_input_boards,
                 y=[f_target_vs, f_target_pis],
