@@ -608,15 +608,21 @@ class AlphaZero(Approach):
         """
         examples: list of examples, each example is of form (board, pi, v)
         """
-        input_boards, target_pis, target_vs = list(zip(*examples))
+        #input_boards, target_pis, target_vs = list(zip(*examples))
 
         # for each phase, filter out all the examples from that phase
         # and train the corresponding model on them
         for phase in range(self.task.num_phases):
             match_phase = self._match_phase(phase)
-            f_input_boards = np.asarray(list(filter(match_phase, input_boards)))
-            f_target_pis = np.asarray(list(filter(match_phase, target_pis)))
-            f_target_vs = np.asarray(list(filter(match_phase, target_vs)))
+            f_input_boards, f_target_pis, f_target_vs = list(zip(*
+                list(filter(
+                    lambda x: match_phase(x[0]),
+                    examples
+                ))
+            ))
+            f_input_boards = np.asarray(f_input_boards)
+            f_target_pis = np.asarray(f_target_pis)
+            f_target_vs = np.asarray(f_target_vs)
             self.models[phase].fit(
                 x=f_input_boards,
                 y=[f_target_vs, f_target_pis],
