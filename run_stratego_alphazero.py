@@ -10,7 +10,7 @@ start_from_iteration = 0
 
 def run():
     N = 10
-    task = Stratego(N)
+    task = Stratego(N, max_moves=650)
     ai = AlphaZero({
         "numEps": 6,
         "numMCTSSims": 3,
