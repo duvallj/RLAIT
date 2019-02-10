@@ -34,7 +34,7 @@ class SState(State):
 
     def __array_finalize__(self, obj):
         if obj is None: return
-        
+
         super().__array_finalize__(obj)
         self.move_num = getattr(obj, 'move_num', 0)
 
@@ -375,11 +375,16 @@ class Stratego(Task):
             # we need to have more complicated stuff for legal moves
             # where it takes two places as a move
             indexes = np.unravel_index(np.argsort(legal, axis=None), legal.shape)
-            pair_value = self._move_value(legal)
-            pairs = list(sorted(filter(pair_value, combinations(zip(*indexes), 2)), key=pair_value))[::-1]
+            pair_value = np.vectorize(self._move_value(legal), signature="(i,i)->()")
+            pairs = np.asarray(list(combinations(zip(*indexes), 2)))
+            values = pair_value(pairs)
+            check_mask = values != 0
+            pairs = pairs[check_mask][np.argsort(values[check_mask])]
+            pairs = list(pairs)[::-1]
 
             for pair in pairs:
-                start, end = pair
+                start = tuple(pair[0])
+                end = tuple(pair[1])
                 startw, endw = state[start], state[end]
                 if not startw[:, state.next_player].any():
                     startw, endw = endw, startw
@@ -596,13 +601,13 @@ class Stratego(Task):
 
     def _move_value(self, legal_moves):
         def _internal_move_value(pair):
-            a, b = pair
+            a = legal_moves[tuple(pair[0])]
+            b = legal_moves[tuple(pair[1])]
             return \
                 (
-                    legal_moves[a] != 0 and \
-                    legal_moves[b] != 0 \
-                ) * ( \
-                    legal_moves[a] + legal_moves[b] \
+                    a != 0 and b != 0 \
+                ) and ( \
+                    a + b \
                 )
         return _internal_move_value
 

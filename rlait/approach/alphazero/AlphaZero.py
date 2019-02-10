@@ -211,9 +211,9 @@ class AlphaZero(Approach):
             output = Dense(output_size, activation='softmax', name='pi{}'.format(phase))(s_fc2)   # batch_size x self.output_size
             self.outputs.append(output)
             self.output_sizes.append(output_size)
-            
+
             model = Model(inputs=self.input, outputs=[self.v, output])
-            model.compile(loss=['mean_squared_error', 'categorical_crossentropy'], optimizer=Adam(self.args.lr)) 
+            model.compile(loss=['mean_squared_error', 'categorical_crossentropy'], optimizer=Adam(self.args.lr))
             self.models.append(model)
 
         # Doing the above instead of this because we need to have multiple models
@@ -623,8 +623,8 @@ class AlphaZero(Approach):
             f_input_boards = np.asarray(f_input_boards)
             f_target_pis = np.asarray(f_target_pis)
             f_target_vs = np.asarray(f_target_vs)
-            f_target_pis.reshape(f_target_pis.shape + (1,))
-            f_target_vs.reshape(f_target_vs.shape + (1,))
+            f_target_pis = f_target_pis.reshape(f_target_pis.shape + (1,))
+            f_target_vs = f_target_vs.reshape(f_target_vs.shape + (1,))
             self.models[phase].fit(
                 x=f_input_boards,
                 y=[f_target_vs, f_target_pis],
