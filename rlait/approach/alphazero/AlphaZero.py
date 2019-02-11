@@ -547,16 +547,19 @@ class AlphaZero(Approach):
             episodeStep += 1
             temp = int(episodeStep < self.args.tempThreshold)
 
-            pi, avail_moves = self._get_action_prob(board, temp=temp)
+            probs, avail_moves = self._get_action_prob(board, temp=temp)
             # not applicable to all games, but might include later
             #sym = self.task.getSymmetries(canonicalBoard, pi)
             #for b,p in sym:
+
+            pi = np.asarray([probs[i]*self.task.string_to_move(avail_moves[i],board) for i in range(len(probs))])
+            pi = np.sum(pi, axis=0).flatten()
 
             trainExamples.append((board, board.next_player, pi))
 
             action = random.choices(
                 population=avail_moves,
-                weights=pi,
+                weights=probs,
                 k=1
             )[0]
             board = self.task.apply_move(self.task.string_to_move(action, board), board)

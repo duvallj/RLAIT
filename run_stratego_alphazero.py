@@ -3,7 +3,7 @@ from rlait.approach.alphazero.AlphaZero import AlphaZero
 from rlait.util import dotdict, BadMoveException
 
 import sys
-sys.setrecursionlimit(100000)
+sys.setrecursionlimit(10000)
 
 total_iterations = 30
 start_from_iteration = 0
