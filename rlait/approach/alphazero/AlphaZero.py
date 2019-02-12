@@ -287,11 +287,16 @@ class AlphaZero(Approach):
         s = self.task.state_string_representation(board)
 
         if s not in self.Es:
-            winners = self.task.get_winners(board)
-            if winners:
-                self.Es[s] = list(winners)[0]
+            if self.task.is_terminal_state(board):
+                winners = self.task.get_winners(board)
+                # Make it so that tying is OK
+                if board.next_player in winners or (not winners):
+                    self.Es[s] = 1
+                else:
+                    self.Es[s] = -1
             else:
                 self.Es[s] = 0
+
         if self.Es[s]!=0:
             # terminal node
             return -self.Es[s]
@@ -340,7 +345,13 @@ class AlphaZero(Approach):
         a = best_act
         next_s = self.task.apply_move(self.task.string_to_move(a, board), board)
 
-        v = self._search(next_s)
+        try:
+            v = self._search(next_s)
+        except RecursionError:
+            # NOTE: this might cause some issues, but it hits the
+            # recursion limit pretty infrequently anyways (most likely due 
+            # to inadequate tie handling anyways, which should be fixed)
+            return 0
 
         if (s,a) in self.Qsa:
             self.Qsa[(s,a)] = (self.Nsa[(s,a)]*self.Qsa[(s,a)] + v)/(self.Nsa[(s,a)]+1)
@@ -626,7 +637,6 @@ class AlphaZero(Approach):
             f_input_boards = np.asarray(f_input_boards)
             f_target_pis = np.asarray(f_target_pis)
             f_target_vs = np.asarray(f_target_vs)
-            f_target_pis = f_target_pis.reshape(f_target_pis.shape + (1,))
             f_target_vs = f_target_vs.reshape(f_target_vs.shape + (1,))
             self.models[phase].fit(
                 x=f_input_boards,

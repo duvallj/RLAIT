@@ -1,3 +1,9 @@
+#! /usr/bin/env python3
+
+# only use 1 gpu
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
+
 from rlait.task.stratego.Stratego import Stratego
 from rlait.approach.alphazero.AlphaZero import AlphaZero
 from rlait.util import dotdict, BadMoveException
