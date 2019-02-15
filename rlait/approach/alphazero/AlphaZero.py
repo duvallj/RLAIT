@@ -72,6 +72,8 @@ class AlphaZero(Approach):
             of a training iteration
         * cpuct : float (1.0)
             A factor that determines how likely the MCTS is to explore.
+        * maxDepth : int (5000)
+            The maximum search depth to explore for one move
 
         * load_checkpoint : bool (False)
             Do we load a checkpoint?
@@ -107,6 +109,7 @@ class AlphaZero(Approach):
         self.args.numMCTSSims                     = self.args.get("numMCTSSims", 30)
         self.args.arenaCompare                    = self.args.get("arenaCompare", 11)
         self.args.cpuct                           = self.args.get("cpuct", 1.0)
+        self.args.maxDepth                        = self.args.get("maxDepth", 500)
 
         self.args.load_checkpoint                 = self.args.get("load_checkpoint", False)
         self.args.checkpoint                      = self.args.get("checkpoint", None)
@@ -229,14 +232,14 @@ class AlphaZero(Approach):
         self.iteration = self.args.startFromEp
 
         if self.args.load_checkpoint:
-            if self.args.checkpoint is not None:
+            if not (self.args.checkpoint is None):
                 self.load_weights(self.args.checkpoint)
             else:
                 try:
                     self.load_weights(self._get_checkpoint_filename(self.iteration))
                 except:
                     log.warn("Tried to load checkpoint from starting iteration, could not find it.")
-            if self.args.prevHistory is not None:
+            if not (self.args.prevHistory is None) and make_competetor:
                 self.load_history(self.args.prevHistory)
                 self.skipFirstSelfPlay = True
 
@@ -254,7 +257,7 @@ class AlphaZero(Approach):
         v, pi = self.models[state.phase].predict(np.reshape(state, (1,)+state.shape))
         return v[0], pi[0]
 
-    def _search(self, board):
+    def _search(self, board, depth, maxdepth=float('inf')):
         """
         This function performs one iteration of MCTS. It is recursively called
         till a leaf node is found. The action chosen at each node is one that
@@ -281,6 +284,8 @@ class AlphaZero(Approach):
         state. This is done since v is in [-1,1] and if v is the value of a
         state for the current player, then its value is -v for the other player.
         """
+
+        if depth > maxdepth: return 0
 
         canonicalBoard = self.task.get_canonical_form(board)
         phase = board.phase
@@ -322,21 +327,21 @@ class AlphaZero(Approach):
                 self.Ps[s] = self.Ps[s] + valids
                 self.Ps[s] /= np.sum(self.Ps[s])
 
-            self.Vs[s] = valids
+            self.Vs[s] = list(self.task.iterate_legal_moves(board))
             self.Ns[s] = 0
             return -v
 
-        valids = self.Vs[s]
+        valid_moves = self.Vs[s]
         cur_best = -float('inf')
         best_act = -1
 
         # pick the action with the highest upper confidence bound
-        for move in self.task.iterate_legal_moves(board):
+        for move in valid_moves:
             a = self.task.move_string_representation(move, board)
             if (s,a) in self.Qsa:
-                u = self.Qsa[(s,a)] + self.args.cpuct*(self.Ps[s]*move).sum()*math.sqrt(self.Ns[s])/(1+self.Nsa[(s,a)])
+                u = self.Qsa[(s,a)] + self.args.cpuct*(move*self.Ps[s]).sum()*math.sqrt(self.Ns[s])/(1+self.Nsa[(s,a)])
             else:
-                u = self.args.cpuct*(self.Ps[s]*move).sum()*math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
+                u = self.args.cpuct*(move*self.Ps[s]).sum()*math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
 
             if u > cur_best:
                 cur_best = u
@@ -346,10 +351,10 @@ class AlphaZero(Approach):
         next_s = self.task.apply_move(self.task.string_to_move(a, board), board)
 
         try:
-            v = self._search(next_s)
+            v = self._search(next_s, depth+1, maxdepth=maxdepth)
         except RecursionError:
             # NOTE: this might cause some issues, but it hits the
-            # recursion limit pretty infrequently anyways (most likely due 
+            # recursion limit pretty infrequently anyways (most likely due
             # to inadequate tie handling anyways, which should be fixed)
             return 0
 
@@ -382,7 +387,7 @@ class AlphaZero(Approach):
                 same index in probs
         """
         for i in range(self.args.numMCTSSims):
-            self._search(state)
+            self._search(state, 0, maxdepth=self.args.maxDepth)
 
         s = self.task.state_string_representation(state)
         avail_moves = list(map(lambda x: self.task.move_string_representation(x, state),
@@ -518,6 +523,7 @@ class AlphaZero(Approach):
                 raise("No checkpoint in local file {} or path {}!".format(filename, filepath))
 
         with open(filepath, "rb") as f:
+            log.info(f"Loading History from {filepath}")
             self.trainExamplesHistory = Unpickler(f).load()
 
         return self
@@ -610,8 +616,8 @@ class AlphaZero(Approach):
             log.debug("len(trainExamplesHistory) =", len(self.trainExamplesHistory), " => remove the oldest trainExamples")
             self.trainExamplesHistory.pop(0)
         # backup history to a file
-        # NB! the examples were collected using the model from the previous iteration, so (i-1)
-        self.save_history(self._get_checkpoint_filename(self.iteration-1)+".examples")
+        # NB! the examples were collected using the model from the previous iteration
+        self.save_history(self._get_checkpoint_filename(self.iteration)+".examples")
 
     def _match_phase(self, phase):
         def _internal_match_phase(a):
@@ -650,6 +656,10 @@ class AlphaZero(Approach):
         if verbose:
             assert(self.task.state_string_representation)
         board = self.task.empty_state(phase=0)
+        
+        first_player._reset_mcts()
+        second_player._reset_mcts()
+
         it = 0
         while not self.task.is_terminal_state(board):
             it += 1
@@ -676,7 +686,7 @@ class AlphaZero(Approach):
 
         return r
 
-    def _arena_play(self, num, verbose=False):
+    def _arena_play(self, num, verbose=True):
         """
         Plays num games in which player 1 and 2 both start num/2 times each
 
@@ -694,21 +704,21 @@ class AlphaZero(Approach):
                 games won by nobody
         """
         num = int(num/2)
-        eps_time = Progbar(2*num, stateful_metrics=["win_draw_ratio"])
-        eps_time.update(0, values={"win_draw_ratio":"0-0-0"})
+        eps_time = Progbar(2*num, stateful_metrics=["wins", "draws", "losses"])
+        eps_time.update(0, values=[("wins",0),("draws",0),("losses",0)])
         oneWon = 0
         twoWon = 0
         draws = 0
 
         for _ in range(num):
-            result = self._arena_play_once(self, self.pnet, verbose)
+            result = self._arena_play_once(self, self.pnet, verbose=verbose)
             if result == 1:
                 oneWon += 1
             elif result == -1:
                 twoWon += 1
             else:
                 draws += 1
-            eps_time.add(1, {"win_draw_ratio": f"{oneWon}-{twoWon}-{draws}"})
+            eps_time.add(1, [("wins", oneWon), ("losses", twoWon), ("draws", draws)])
 
             result = self._arena_play_once(self.pnet, self, verbose)
             if result == 1:
@@ -717,7 +727,7 @@ class AlphaZero(Approach):
                 oneWon += 1
             else:
                 draws += 1
-            eps_time.add(1, {"win_draw_ratio": f"{oneWon}-{twoWon}-{draws}"})
+            eps_time.add(1, [("wins", oneWon), ("losses", twoWon), ("draws", draws)])
 
         return oneWon, twoWon, draws
 

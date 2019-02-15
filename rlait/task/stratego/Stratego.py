@@ -614,6 +614,51 @@ class Stratego(Task):
 
         return cpy
 
+    def mask_move_to_state(self, move, state):
+        """
+        Preserves all the locations in state that will be affected by move,
+        sets to 0 all the other elements. Only requires the shape and phase 
+        of move and state to be valid, nothing else.
+
+        Useful in certain Approaches
+
+        Parameters
+        ----------
+        move : Move
+        state : State
+
+        Returns
+        -------
+        State
+        """
+
+        if move.shape != self.empty_move(move.phase).shape:
+            raise TypeError("The shape of the move vector {} does not match the empty move vector for phase {}".format(move.shape, state.phase))
+            return None
+        if  state.shape != self.empty_state(state.phase).shape:
+            raise TypeError("The shape of the state vector {} does not match the empty state vector for phase {}".format(state.shape, state.phase))
+            return None
+
+        if move.phase != state.phase:
+            raise TypeError("The phases of the move ({}) and the state ({}) do not match".format(move.phase, state.phase))
+            return None
+        
+        nstate = state * 0
+
+        if state.phase == 0:
+            index = np.unravel_index(np.argmax(move, axis=None), move.shape)
+            nstate[index] = state[index]
+        elif state.phase == 1:
+            indexes = np.unravel_index(np.argsort(move, axis=None)[:-2], move.shape)
+            start, end = (indexes[0][0], indexes[1][0]), (indexes[0][1], indexes[1][1])
+            nstate[start] = state[start]
+            nstate[end] = state[end]
+        else:
+            raise BadMoveException("The phase {} does not exist".format(move.phase))
+            nstate = None
+
+        return nstate
+    
     def _move_value(self, legal_moves):
         def _internal_move_value(pair):
             a = legal_moves[tuple(pair[0])]
@@ -652,7 +697,7 @@ class Stratego(Task):
         Notes
         -----
         For phase 0, this will choose the highest valued number in the passed in
-        move matrix (after being masked by `get_legal_mask`) and place that piece
+        ove matrix (after being masked by `get_legal_mask`) and place that piece
         there. `get_legal_mask` is assumed to have taken care of all the piece
         counting.
 
@@ -692,11 +737,15 @@ class Stratego(Task):
         The 9-9 pair would be classified as illegal, so the 9-8 pair would actually be taken.
         """
 
-        if move.shape != self.empty_move(state.phase).shape:
+        if move.shape != self.empty_move(move.phase).shape:
             raise TypeError("The shape of the move vector {} does not match the empty move vector for phase {}".format(move.shape, state.phase))
             return None
-        if  state.shape != self.empty_state().shape:
+        if  state.shape != self.empty_state(state.phase).shape:
             raise TypeError("The shape of the state vector {} does not match the empty state vector for phase {}".format(state.shape, state.phase))
+            return None
+
+        if move.phase != state.phase:
+            raise TypeError("The phases of the move ({}) and the state ({}) do not match".format(move.phase, state.phase))
             return None
 
         nstate = state.copy()
@@ -719,8 +768,8 @@ class Stratego(Task):
         elif state.phase == 1:
             # use iterate_legal_moves to get the first pair to check
             found_move = False
-            for move in self.iterate_legal_moves(state, legal):
-                indexes = np.unravel_index(np.argpartition(legal, -2, axis=None)[-2:], legal.shape)
+            for test_move in self.iterate_legal_moves(state, legal):
+                indexes = np.unravel_index(np.argsort(test_move, axis=None)[-2:], test_move.shape)
                 # again, whyyyyyy?
                 start, end = (indexes[0][0], indexes[1][0]), (indexes[0][1], indexes[1][1])
 
