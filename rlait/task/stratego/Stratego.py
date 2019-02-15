@@ -38,6 +38,21 @@ class SState(State):
         super().__array_finalize__(obj)
         self.move_num = getattr(obj, 'move_num', 0)
 
+    # copied from https://stackoverflow.com/a/26599346
+    def __reduce__(self):
+        # Get the parent's __reduce__ tuple
+        pickled_state = super(SState, self).__reduce__()
+        # Create our own tuple to pass to __setstate__
+        new_state = pickled_state[2] + (self.move_num,)
+        # Return a tuple that replaces the parent's __reduce__
+        return (pickled_state[0], pickled_state[1], new_state)
+
+    def __setstate__(self, state):
+        # Set the info attributes accordingly
+        self.move_num = state[-1]
+        # Call the parent's __setstate__ with the original tuple
+        super(SState, self).__setstate__(state[0:-1])
+
 class Stratego(Task):
 
     def __init__(self, size=10, max_moves=1000, **kwargs):
