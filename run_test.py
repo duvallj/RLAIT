@@ -1,5 +1,7 @@
 from rlait.task.stratego.Stratego import Stratego
+from rlait.task.othello.Othello import Othello
 from rlait.approach.random.Random import Random
+from rlait.approach.interactive_player import InteractivePlayer
 from rlait.approach.alphazero.AlphaZero import AlphaZero
 from rlait.util import dotdict, BadMoveException
 
@@ -7,15 +9,13 @@ import numpy as np
 
 from time import sleep
 
-N = 10
-task = Stratego(N)
+N = 4
+task = Othello(N) #Stratego(N)
 
 def main():
     board = task.empty_state(phase=0)
-    ai1 = AlphaZero({'numMCTSSims': 3}).init_to_task(task) #Random().init_to_task(task)
-    ai2 = AlphaZero({'numMCTSSims': 3}).init_to_task(task)
-    ai2.save_weights("temp.pkl")
-    ai2.load_weights("temp.pkl")
+    ai1 = Random().init_to_task(task)
+    ai2 = InteractivePlayer().init_to_task(task) #AlphaZero({'numMCTSSims': 3}).init_to_task(task)
     print(task.state_string_representation(board))
 
     while not task.is_terminal_state(board):

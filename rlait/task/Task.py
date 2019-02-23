@@ -119,24 +119,6 @@ class Task:
 
         return None
 
-    def mask_move_to_state(self, move, state):
-        """
-        Preserves all the locations in state that will be affected by move,
-        sets to 0 all the other elements.
-
-        Useful in certain approaches
-
-        Parameters
-        ----------
-        move : Move
-        state : State
-
-        Returns
-        -------
-        State
-        """
-        return None
-
 
     def apply_move(self, move, state):
         """
@@ -213,7 +195,7 @@ class Task:
 
         return None
 
-    def move_string_representation(self, move):
+    def move_string_representation(self, move, state):
         """
         Returns a string representation of a move, fit for printing and/or caching
 
