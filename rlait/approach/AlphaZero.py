@@ -486,6 +486,7 @@ class AlphaZero(Approach):
         # Keras's h5py backend supports writing data directly to a BytesIO object
         # So, we just tell it to do that for all the models and write the resulting
         # list to a pickle file.
+        # Will most certainly fail for large enough models
         all_model_files = []
         for i in range(len(self.models)):
             buf = io.BytesIO()
