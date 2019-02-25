@@ -4,8 +4,8 @@
 import os
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
-from rlait.task.stratego.Stratego import Stratego
-from rlait.approach.alphazero.AlphaZero import AlphaZero
+from rlait.task.Stratego import Stratego
+from rlait.approach.AlphaZero import AlphaZero
 from rlait.util import dotdict, BadMoveException
 
 import sys

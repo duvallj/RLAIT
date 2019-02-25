@@ -1,8 +1,8 @@
-from rlait.task.stratego.Stratego import Stratego
-from rlait.task.othello.Othello import Othello
-from rlait.approach.random.Random import Random
-from rlait.approach.interactive_player import InteractivePlayer
-from rlait.approach.alphazero.AlphaZero import AlphaZero
+from rlait.task.Stratego import Stratego
+from rlait.task.Othello import Othello
+from rlait.approach.Random import Random
+from rlait.approach.InteractivePlayer import InteractivePlayer
+from rlait.approach.AlphaZero import AlphaZero
 from rlait.util import dotdict, BadMoveException
 
 import numpy as np

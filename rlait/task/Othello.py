@@ -1,5 +1,5 @@
-from ..Task import Task
-from ...util import Move, State, STATE_TYPE_OPTION_TO_INDEX, BadMoveException
+from .Task import Task
+from ..util import Move, State, STATE_TYPE_OPTION_TO_INDEX, BadMoveException
 
 import numpy as np
 
@@ -147,8 +147,6 @@ class Othello(Task):
             if self._out_of_bounds(bry, brx):
                 return None
 
-        # TODO: finish this method
-        #print(square, player, direction, (bry,brx))
         return None if board[bry, brx] == 0 else (bry, brx)
 
     def _is_legal(self, board, move, player):

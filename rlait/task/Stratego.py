@@ -1,5 +1,5 @@
-from ..Task import Task
-from ...util import Move, State, STATE_TYPE_OPTION_TO_INDEX, BadMoveException
+from .Task import Task
+from ..util import Move, State, STATE_TYPE_OPTION_TO_INDEX, BadMoveException
 
 from itertools import combinations
 
@@ -613,7 +613,7 @@ class Stratego(Task):
         # parsing better
 
         return cpy
-        
+
 
     def _move_value(self, legal_moves):
         def _internal_move_value(pair):

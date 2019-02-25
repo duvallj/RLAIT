@@ -1,4 +1,4 @@
-from ..Approach import Approach
+from .Approach import Approach
 
 import numpy as np
 import random

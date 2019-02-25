@@ -1,5 +1,6 @@
-from ..Approach import Approach
-from ...util import STATE_TYPE_OPTION, dotdict
+from .Approach import Approach
+from ..model.SimpleConvNet import SimpleConvNet
+from ..util import STATE_TYPE_OPTION, dotdict
 
 import numpy as np
 from keras.models import *
@@ -160,6 +161,8 @@ class AlphaZero(Approach):
         required for different Tasks.
         """
 
+        self.task = task
+
         # Assumes that the input board shape will remain constant between phases
         # Unfortunately, there's no good way to do this without that assumption.
 
@@ -192,14 +195,9 @@ class AlphaZero(Approach):
             raise TypeError("Unknown state type \"{}\"".format(empty_state.state_type))
             x_image = None
 
-        h_conv1 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(self.args.num_channels, 3, padding='same')(x_image)))         # batch_size  x board_x x board_y x num_channels
-        h_conv2 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(self.args.num_channels, 3, padding='same')(h_conv1)))         # batch_size  x board_x x board_y x num_channels
-        h_conv3 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(self.args.num_channels, 3, padding='valid')(h_conv2)))        # batch_size  x (board_x-2) x (board_y-2) x num_channels
-        h_conv4 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(self.args.num_channels, 3, padding='valid')(h_conv3)))        # batch_size  x (board_x-4) x (board_y-4) x num_channels
-        h_conv4_flat = Flatten()(h_conv4)
-        s_fc1 = Dropout(self.args.dropout)(Activation('relu')(BatchNormalization(axis=1)(Dense(1024)(h_conv4_flat))))                # batch_size x 1024
-        s_fc2 = Dropout(self.args.dropout)(Activation('relu')(BatchNormalization(axis=1)(Dense(512)(s_fc1))))                        # batch_size x 1024
-        self.v = Dense(1, activation='tanh', name='v')(s_fc2)                                                                        # batch_size x 1
+        conv_model = SimpleConvNet(args, x_image)
+
+        self.v = Dense(1, activation='tanh', name='v')(conv_model.output)                                                                        # batch_size x 1
 
         self.outputs = [self.v]
         self.output_sizes = [1]
@@ -211,7 +209,7 @@ class AlphaZero(Approach):
             output_size = 1
             for i in range(len(empty_move.shape)):
                 output_size *= empty_move.shape[i]
-            output = Dense(output_size, activation='softmax', name='pi{}'.format(phase))(s_fc2)   # batch_size x self.output_size
+            output = Dense(output_size, activation='softmax', name='pi{}'.format(phase))(conv_model.output)   # batch_size x self.output_size
             self.outputs.append(output)
             self.output_sizes.append(output_size)
 
@@ -656,7 +654,7 @@ class AlphaZero(Approach):
         if verbose:
             assert(self.task.state_string_representation)
         board = self.task.empty_state(phase=0)
-        
+
         first_player._reset_mcts()
         second_player._reset_mcts()
 

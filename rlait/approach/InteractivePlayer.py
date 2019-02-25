@@ -1,5 +1,5 @@
-from ..Approach import Approach
-from ...util import BadMoveException
+from .Approach import Approach
+from ..util import BadMoveException
 
 class InteractivePlayer(Approach):
     def __init__(self, approach_name="interactive"):
