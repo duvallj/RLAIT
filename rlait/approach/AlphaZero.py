@@ -18,6 +18,7 @@ import os
 import io
 
 log = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 EPS = 1e-8
 
@@ -87,7 +88,7 @@ class AlphaZero(Approach):
             be a file path relative to the below directory.
         * checkpoint_dir : str ("./checkpoints")
             Folder to store the checkpoints in. Must be an absolute path or a
-            path relative to the location of this file.
+            path relative to the location of the script running.
         * numItersForTrainExamplesHistory : int(30)
             The number of past iterations to store in a single history file.
         """
@@ -105,7 +106,7 @@ class AlphaZero(Approach):
         self.args.startFromEp                     = self.args.get("startFromEp", 0)
         self.args.numEps                          = self.args.get("numEps", 30)
         self.args.tempThreshold                   = self.args.get("tempThreshold", 15)
-        self.args.updateThreshold                 = self.args.get("updateThreshold", 0.6)
+        self.args.updateThreshold                 = self.args.get("updateThreshold", 0.5)
         self.args.maxlenOfQueue                   = self.args.get("maxlenOfQueue", 200000)
         self.args.numMCTSSims                     = self.args.get("numMCTSSims", 30)
         self.args.arenaCompare                    = self.args.get("arenaCompare", 11)
@@ -195,7 +196,7 @@ class AlphaZero(Approach):
             raise TypeError("Unknown state type \"{}\"".format(empty_state.state_type))
             x_image = None
 
-        conv_model = SimpleConvNet(args, x_image)
+        conv_model = SimpleConvNet(self.args, x_image)
 
         self.v = Dense(1, activation='tanh', name='v')(conv_model.output)                                                                        # batch_size x 1
 
@@ -311,7 +312,9 @@ class AlphaZero(Approach):
             # for ease of passing hidden information.
             v, self.Ps[s] = self._nn_predict(canonicalBoard)
             self.Ps[s] = np.reshape(self.Ps[s], self.task.empty_move(board.phase).shape)
-            valids = self.task.get_legal_mask(canonicalBoard)
+            # unfortunately, this requires that canonical forms do nothing
+            # like flipping the board, which is usually normal...
+            valids = self.task.get_legal_mask(board)
             self.Ps[s] = self.Ps[s]*valids      # masking invalid moves
             sum_Ps_s = np.sum(self.Ps[s])
             if sum_Ps_s > 0.0:
@@ -321,7 +324,7 @@ class AlphaZero(Approach):
 
                 # NB! All valid moves may be masked if either your NNet architecture is insufficient or you've get overfitting or something else.
                 # If you have got dozens or hundreds of these messages you should pay attention to your NNet and/or training process.
-                print("All valid moves were masked, do workaround.")
+                log.warn("All valid moves were masked, do workaround.")
                 self.Ps[s] = self.Ps[s] + valids
                 self.Ps[s] /= np.sum(self.Ps[s])
 
@@ -355,6 +358,10 @@ class AlphaZero(Approach):
             # recursion limit pretty infrequently anyways (most likely due
             # to inadequate tie handling anyways, which should be fixed)
             return 0
+
+        if next_s.next_player == board.next_player:
+            # skipped a move, keep the same value
+            v *= -1
 
         if (s,a) in self.Qsa:
             self.Qsa[(s,a)] = (self.Nsa[(s,a)]*self.Qsa[(s,a)] + v)/(self.Nsa[(s,a)]+1)
@@ -660,16 +667,20 @@ class AlphaZero(Approach):
         second_player._reset_mcts()
 
         it = 0
+        first_player_number = board.next_player
+
         while not self.task.is_terminal_state(board):
             it += 1
             if verbose:
                 print(f"Turn {it} Player {board.next_player}")
                 print(self.task.state_string_representation(board))
 
-            if board.next_player == 0:
+            # can't count on consistent player numbers
+            # or even consisten player counts
+            if board.next_player == first_player_number:
                 move = first_player.get_move(board)
                 board = self.task.apply_move(move, board)
-            elif board.next_player == 1:
+            else:
                 move = second_player.get_move(board)
                 board = self.task.apply_move(move, board)
 
@@ -678,14 +689,14 @@ class AlphaZero(Approach):
             print(f"Game Over: Turn {it} Winners {winners}")
             print(self.task.state_string_representation(board))
         r = 0
-        if 0 in winners and not 1 in winners:
+        if first_player_number in winners:
             r = 1
-        elif 1 in winners and not 0 in winners:
+        elif first_player_number not in winners and len(winners)>0:
             r = -1
 
         return r
 
-    def _arena_play(self, num, verbose=True):
+    def _arena_play(self, num, verbose=False):
         """
         Plays num games in which player 1 and 2 both start num/2 times each
 
@@ -773,6 +784,8 @@ class AlphaZero(Approach):
             log.info('ACCEPTING NEW MODEL')
             self.save_weights(self._get_checkpoint_filename(self.iteration))
             self.save_weights('best.pth.tar')
+
+        self.iteration += 1
 
     def test_once(self):
         """

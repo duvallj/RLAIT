@@ -579,10 +579,8 @@ class Stratego(Task):
 
     def get_canonical_form(self, state):
         """
-        Gets the canonical form of a state, eg how a player sees the board.
-        For example, if player 0 and player 1 both "see" the exact same thing
-        (their opponents pieces are in the same configuration theirs are),
-        this method will return the same output for each player.
+        Gets the canonical form of a state, normalized for how the current
+        player would "see" to board if they were the first player.
 
         Parameters
         ----------
@@ -608,6 +606,11 @@ class Stratego(Task):
             self._mask_hidden_pieces, 2,
             cpy[:, :, :, self._other_player(state.next_player)]
         )
+
+        if state.next_player != 0:
+            tmp = cpy[:, :, :, 0]
+            cpy[:, :, :, 0] = cpy[:, :, :, 1]
+            cpy[:, :, :, 1] = tmp
 
         # don't reverse order of columns and rows to make move
         # parsing better

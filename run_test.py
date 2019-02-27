@@ -1,57 +1,39 @@
-from rlait.task.Stratego import Stratego
+#from rlait.task.Stratego import Stratego
 from rlait.task.Othello import Othello
 from rlait.approach.Random import Random
 from rlait.approach.InteractivePlayer import InteractivePlayer
-from rlait.approach.AlphaZero import AlphaZero
+#from rlait.approach.AlphaZero import AlphaZero
 from rlait.util import dotdict, BadMoveException
 
 import numpy as np
 
 from time import sleep
 
-N = 4
-task = Othello(N) #Stratego(N)
-
-def main():
+def main(task, ai1, ai2):
     board = task.empty_state(phase=0)
-    ai1 = Random().init_to_task(task)
-    ai2 = InteractivePlayer().init_to_task(task) #AlphaZero({'numMCTSSims': 3}).init_to_task(task)
     print(task.state_string_representation(board))
 
+    first_player_number = board.next_player
+
     while not task.is_terminal_state(board):
-        print("To move: {}".format(board.next_player))
-        move = ai1.get_move(board)
+        move = None
+        if board.next_player == first_player_number:
+            print("To move: {} ({})".format(board.next_player, ai1.approach_name))
+            move = ai1.get_move(board)
+        else:
+            print("To move: {} ({})".format(board.next_player, ai2.approach_name))
+            move = ai2.get_move(board)
+            
         print(task.move_string_representation(move, board))
         board = task.apply_move(move, board)
         to_print = task.state_string_representation(board)
         print(to_print)
-        if '!' in to_print: raise ValueError("This shouldn't happen! go figure out why")
-        #print(task.state_string_respresentation(task.get_canonical_form(board)))
-        if task.is_terminal_state(board): break
-        """
-        player_move = None
-        new_board = None
-        while player_move is None:
-            player_move = task.string_to_move(input("Enter move: "), board)
-            if player_move is not None:
-                try:
-                    new_board = task.apply_move(player_move, board)
-                except BadMoveException:
-                    print("Error: move is illegal due to apply_move rules. Try again.")
-                    player_move = None
-        board = new_board
-        """
-        print("To move: {}".format(board.next_player))
-        move = ai2.get_move(board)
-        print(task.move_string_representation(move, board))
-        board = task.apply_move(move, board)
-        #"""
-        to_print = task.state_string_representation(board)
-        print(to_print)
-        if '!' in to_print: raise ValueError("This shouldn't happen! go figure out why")
-        #print(task.state_string_respresentation(task.get_canonical_form(board)))
 
     print('The winner is player {}'.format(task.get_winners(board)))
 
 if __name__ == "__main__":
-    main()
+    N = 4 #10
+    task = Othello(N) #Stratego(N)
+    ai1 = Random()
+    ai2 = InteractivePlayer()
+    main(task, ai1, ai2)

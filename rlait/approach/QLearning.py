@@ -36,8 +36,20 @@ class QLearning(Approach):
             A factor detailing how much to prioritize future rewards
         * lr : float (0.2)
             Learning rate, how much to weight new experiences over old ones
+
+        * checkpoint_dir : str ("./checkpoints")
+            Folder to store the checkpoints in. Must be an absolute path or a
+            path relative to the location of the script running
         """
         super().__init__(approach_name="qlearning")
+
+        self.args = dotdict(argdict)
+
+        self.args.lr                              = self.args.get('lr', 0.2)
+        self.args.discount                        = self.args.get('discount', 0.90)
+
+        self.args.checkpoint_dir                  = self.args.get('checkpoint_dir', "./checkpoints")
+
 
     def init_to_task(self, task):
         """
@@ -58,6 +70,7 @@ class QLearning(Approach):
             self for the same reason
         """
 
+        self.task = task
         self.Q = dict()
 
         # Returning self so that constructs like
@@ -229,14 +242,14 @@ class QLearning(Approach):
             s = self.task.state_string_representation(board)
             a = self.task.move_string_representation(move, board)
             temp_history.append((s,a,board.next_player))
-            board = self.task.apply_move(board)
+            board = self.task.apply_move(move, board)
 
         winners = self.task.get_winners(board)
 
         last_s, last_a, last_np = temp_history[-1]
         if last_s not in self.Q:
             self.Q[last_s] = dict()
-         self.Q[last_s][last_a] = (1-self.args.lr) * self.Q[last_s].get(last_a, 0) \
+        self.Q[last_s][last_a] = (1-self.args.lr) * self.Q[last_s].get(last_a, 0) \
                             + self.args.lr * (10 * (-1)**(last_np not in winners))
                             # reward for winning, or penalty for losing
 
@@ -247,7 +260,7 @@ class QLearning(Approach):
             s, a, np = temp_history[i]
             if s not in self.Q:
                 self.Q[s] = dict()
-            prev_Q = max(self.Q[temp_history[i+1][0]].values())
+            prev_Q = max(self.Q[temp_history[i+1][0]].values()) * (-1)**(np != last_np)
             self.Q[s][a] = (1-self.args.lr) * self.Q[s].get(a, 0) \
                         + self.args.lr * (self.args.discount * prev_Q)
 

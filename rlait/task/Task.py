@@ -101,10 +101,8 @@ class Task:
 
     def get_canonical_form(self, state):
         """
-        Gets the canonical form of a state, eg how a player sees the board.
-        For example, if player 0 and player 1 both "see" the exact same thing
-        (their opponents pieces are in the same configuration theirs are),
-        this method will return the same output for each player.
+        Gets the canonical form of a state, normalized for how the current
+        player would "see" to board if they were the first player.
 
         Parameters
         ----------
