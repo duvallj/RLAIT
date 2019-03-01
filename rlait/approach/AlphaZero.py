@@ -62,7 +62,7 @@ class AlphaZero(Approach):
         * tempThreshold : int (15)
             The number of moves to make using weighted plays instead of maximum
             plays when training
-        * updateThreshold : float (0.6)
+        * updateThreshold : float (0.51)
             Fraction of games a challenger network needs to win in order to
             become the new base.
         * maxlenOfQueue : int (200000)
@@ -106,7 +106,7 @@ class AlphaZero(Approach):
         self.args.startFromEp                     = self.args.get("startFromEp", 0)
         self.args.numEps                          = self.args.get("numEps", 30)
         self.args.tempThreshold                   = self.args.get("tempThreshold", 15)
-        self.args.updateThreshold                 = self.args.get("updateThreshold", 0.5)
+        self.args.updateThreshold                 = self.args.get("updateThreshold", 0.51)
         self.args.maxlenOfQueue                   = self.args.get("maxlenOfQueue", 200000)
         self.args.numMCTSSims                     = self.args.get("numMCTSSims", 30)
         self.args.arenaCompare                    = self.args.get("arenaCompare", 11)
