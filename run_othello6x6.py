@@ -19,29 +19,29 @@ import logging
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 
-total_az_iterations = 30
-start_from_az_iteration = 0
+total_az_iterations = 100
+start_from_az_iteration = 30
 
-total_ql_iterations = 10000
+total_ql_iterations = 20000
 start_from_ql_iteration = 0
 
 AZ_CHECKPOINTS = [3, 4, 6, 9, 10, 11, 13, 14, 15, 27]
-QL_CHECKPOINTS = [1, 2]
+QL_CHECKPOINTS = [1, 2, 3]
 
-games_per_round = 5
+games_per_round = 13
 
 def run():
     task = Othello(6)
     az = AlphaZero({
         "numEps": 100,
-        "numMCTSSims": 10,
+        "numMCTSSims": 20,
         "maxDepth": 300,
         "arenaCompare": 10,
         "startFromEp": start_from_az_iteration,
-        "load_checkpoint": False,
-        "checkpoint": "checkpoint_0.pth.tar",
+        "load_checkpoint": True,
+        "checkpoint": "checkpoint_27.pth.tar",
         "checkpoint_dir": "./az6_checkpoints",
-        "prevHistory": "checkpoint_0.pth.tar.examples",
+        "prevHistory": "checkpoint_29.pth.tar.examples",
     })
 
     ql = QLearning({
@@ -51,7 +51,9 @@ def run():
     az.init_to_task(task)
     ql.init_to_task(task)
     
+    train(ql, az)
 
+def test(al, az):
 
     game_history = dict()
 
@@ -72,18 +74,21 @@ def run():
         with open("t6x6-1.pkl", 'wb') as f:
             pickle.dump(game_history, f)
 
-    """
+def train(ql, az):
+    
+    ql.load_weights("checkpoint_3.pkl")
+
     for i in range(start_from_ql_iteration, total_ql_iterations):
-        if i%100==0: print(i)
+        if i%100==0: log.info("QLearning iteration: {}".format(i))
         ql.train_once()
 
-    ql.save_weights("checkpoint_2.pkl")
-    
+    ql.save_weights("checkpoint_4.pkl")
+
+
     for i in range(start_from_az_iteration, total_az_iterations):
         az.train_once()
 
-    print("Done training!")
-    """
+    log.info("Done training!")
 
 if __name__ == "__main__":
     run()
