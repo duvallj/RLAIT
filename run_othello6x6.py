@@ -6,9 +6,6 @@ os.environ["CUDA_VISIBLE_DEVICES"]="0"
 from itertools import product
 import pickle
 
-from rlait.task.Othello import Othello
-from rlait.approach.QLearning import QLearning
-from rlait.approach.AlphaZero import AlphaZero
 from rlait.util import dotdict, BadMoveException
 import run_test
 
@@ -22,7 +19,7 @@ log.setLevel(logging.INFO)
 total_az_iterations = 100
 start_from_az_iteration = 30
 
-total_ql_iterations = 20000
+total_ql_iterations = 10
 start_from_ql_iteration = 0
 
 AZ_CHECKPOINTS = [3, 4, 6, 9, 10, 11, 13, 14, 15, 27]
@@ -31,6 +28,10 @@ QL_CHECKPOINTS = [1, 2, 3]
 games_per_round = 13
 
 def run():
+    from rlait.task.Othello import Othello
+    from rlait.approach.QLearning import QLearning
+    from rlait.approach.AlphaZero import AlphaZero
+
     task = Othello(6)
     az = AlphaZero({
         "numEps": 100,
@@ -38,7 +39,7 @@ def run():
         "maxDepth": 300,
         "arenaCompare": 10,
         "startFromEp": start_from_az_iteration,
-        "load_checkpoint": True,
+        "load_checkpoint": False,
         "checkpoint": "checkpoint_27.pth.tar",
         "checkpoint_dir": "./az6_checkpoints",
         "prevHistory": "checkpoint_29.pth.tar.examples",
@@ -46,11 +47,15 @@ def run():
 
     ql = QLearning({
         "checkpoint_dir": "./ql6_checkpoints",
+        "lr": 0.2,
+        "discount": 0.9,
+        "num_procs": 8,
+        "games_per_proc": 100,
     })
 
     az.init_to_task(task)
     ql.init_to_task(task)
-    
+
     train(ql, az)
 
 def test(al, az):

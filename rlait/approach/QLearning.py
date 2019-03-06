@@ -1,18 +1,11 @@
 from .Approach import Approach
 from .Random import Random # to test against
-from ..model.SimpleConvNet import SimpleConvNet
-from ..util import STATE_TYPE_OPTION, dotdict
-
-from keras.utils.generic_utils import Progbar
-import h5py
+from ..util import STATE_TYPE_OPTION, dotdict, parallelize
 
 import random
-import math
 from pickle import Pickler, Unpickler
-from collections import deque
 import logging
 import os
-import io
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +30,15 @@ class QLearning(Approach):
         * lr : float (0.2)
             Learning rate, how much to weight new experiences over old ones
 
+        * num_procs : int (4)
+            Number of parallel processes to train with
+        * games_per_proc : int(16)
+            Number of games to run per process. Together with num_procs
+            determines how many games to run per training interation
+        * chunksize : int(1)
+            Chunksize for underlying process pool. For small numbers of games
+            can be left at 1.
+
         * checkpoint_dir : str ("./checkpoints")
             Folder to store the checkpoints in. Must be an absolute path or a
             path relative to the location of the script running
@@ -47,6 +49,10 @@ class QLearning(Approach):
 
         self.args.lr                              = self.args.get('lr', 0.2)
         self.args.discount                        = self.args.get('discount', 0.90)
+
+        self.args.num_procs                       = self.args.get('num_procs', 4)
+        self.args.games_per_proc                  = self.args.get('games_per_proc', 16)
+        self.args.chunksize                       = self.args.get('chunksize', 1)
 
         self.args.checkpoint_dir                  = self.args.get('checkpoint_dir', "./checkpoints")
 
@@ -226,9 +232,24 @@ class QLearning(Approach):
     def _get_checkpoint_filename(self, iteration):
         return "checkpoint_{}.pth.tar".format(iteration)
 
+    def _play_game(self, n):
+        board = self.task.empty_state(0)
+        temp_history = []
+
+        while not self.task.is_terminal_state(board):
+            move = self.get_move(board)
+            s = self.task.state_string_representation(board)
+            a = self.task.move_string_representation(move, board)
+            temp_history.append((s,a,board.next_player))
+            board = self.task.apply_move(move, board)
+
+        winners = self.task.get_winners(board)
+
+        return temp_history, winners
+
     def train_once(self):
         """
-        Runs a single training game to update the Q-values.
+        Runs a a series of training games to update the Q-values.
 
         Does not create a checkpoint, must be done manually or
         by running test_once.
@@ -245,38 +266,30 @@ class QLearning(Approach):
         The main issue at hand is that for large state spaces, this approach
         becomes impractical. Deep Q-Learning approaches try to solve this by
         emulate the Q-table with a neural network. Here, though, we just use
-        a dictionary. 
+        a dictionary.
         """
 
-        board = self.task.empty_state(0)
-        temp_history = []
+        history = parallelize(self._play_game, self.args.num_procs,
+            self.args.games_per_proc, self.args.chunksize)
 
-        while not self.task.is_terminal_state(board):
-            move = self.get_move(board)
-            s = self.task.state_string_representation(board)
-            a = self.task.move_string_representation(move, board)
-            temp_history.append((s,a,board.next_player))
-            board = self.task.apply_move(move, board)
+        for temp_history, winners in history:
+            last_s, last_a, last_np = temp_history[-1]
+            if last_s not in self.Q:
+                self.Q[last_s] = dict()
+            self.Q[last_s][last_a] = (1-self.args.lr) * self.Q[last_s].get(last_a, 0) \
+                                + self.args.lr * (10 * (-1)**(last_np not in winners))
+                                # reward for winning, or penalty for losing
 
-        winners = self.task.get_winners(board)
-
-        last_s, last_a, last_np = temp_history[-1]
-        if last_s not in self.Q:
-            self.Q[last_s] = dict()
-        self.Q[last_s][last_a] = (1-self.args.lr) * self.Q[last_s].get(last_a, 0) \
-                            + self.args.lr * (10 * (-1)**(last_np not in winners))
-                            # reward for winning, or penalty for losing
-
-        for i in range(len(temp_history)-2, -1, -1):
-            # no reward for intermediate moves
-            # unfortunately hampers learning for anything
-            # except the shortest tasks
-            s, a, np = temp_history[i]
-            if s not in self.Q:
-                self.Q[s] = dict()
-            prev_Q = max(self.Q[temp_history[i+1][0]].values()) * (-1)**(np != last_np)
-            self.Q[s][a] = (1-self.args.lr) * self.Q[s].get(a, 0) \
-                        + self.args.lr * (self.args.discount * prev_Q)
+            for i in range(len(temp_history)-2, -1, -1):
+                # no reward for intermediate moves
+                # unfortunately hampers learning for anything
+                # except the shortest tasks
+                s, a, np = temp_history[i]
+                if s not in self.Q:
+                    self.Q[s] = dict()
+                prev_Q = max(self.Q[temp_history[i+1][0]].values()) * (-1)**(np != last_np)
+                self.Q[s][a] = (1-self.args.lr) * self.Q[s].get(a, 0) \
+                            + self.args.lr * (self.args.discount * prev_Q)
 
 
     def test_once(self):
