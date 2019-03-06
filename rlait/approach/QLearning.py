@@ -232,6 +232,20 @@ class QLearning(Approach):
 
         Does not create a checkpoint, must be done manually or
         by running test_once.
+
+        Notes
+        -----
+        How Q-Learning works is that every time it encounters a reward
+        throughout a game (in this case, a single reward value for winning
+        given at the end of the game), it propagates that value through a
+        Q-table that keeps track of the expected future reward from every move
+        given a state. By playing the game many times, you can view many states
+        and eventually figure out the optimal actions.
+
+        The main issue at hand is that for large state spaces, this approach
+        becomes impractical. Deep Q-Learning approaches try to solve this by
+        emulate the Q-table with a neural network. Here, though, we just use
+        a dictionary. 
         """
 
         board = self.task.empty_state(0)

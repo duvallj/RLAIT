@@ -3,3 +3,4 @@
 venv
 miniconda3
 checkpoints
+*_checkpoints

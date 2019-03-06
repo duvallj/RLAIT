@@ -330,7 +330,7 @@ class Othello(Task):
         """
         mapping = {-1:'o', 1:'@', 0:'.'}
 
-        st = ""
+        st = str(state.next_player)+'\n'
         for y in range(self.N):
             for x in range(self.N):
                 st += mapping[state[y, x]]

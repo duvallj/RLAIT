@@ -30,7 +30,7 @@ def run():
         "numMCTSSims": 3,
         "maxDepth": 300,
         "arenaCompare": 10,
-        "startFromEp": start_from_az_iteration,
+        "startFromEp": 0,
         "load_checkpoint": True,
         "checkpoint": "checkpoint_6.pth.tar",
         "checkpoint_dir": "./az_checkpoints",
@@ -39,6 +39,8 @@ def run():
 
     ql = QLearning({
         "checkpoint_dir": "./ql_checkpoints",
+        "lr": 0.2,
+        "discount": 0.9
     })
 
     az.init_to_task(task)
