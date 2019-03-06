@@ -31,6 +31,24 @@ def main(task, ai1, ai2):
 
     print('The winner is player {}'.format(task.get_winners(board)))
 
+def play_noprint(task, ai1, ai2):
+    board = task.empty_state(phase=0)
+
+    first_player_number = board.next_player
+
+    while not task.is_terminal_state(board):
+        move = None
+        if board.next_player == first_player_number:
+            move = ai1.get_move(board)
+        else:
+            move = ai2.get_move(board)
+        board = task.apply_move(move, board)
+
+    winners = task.get_winners(board)
+    if first_player_number in winners: return 1
+    elif len(winners) != 0: return -1
+    return 0
+
 if __name__ == "__main__":
     N = 4 #10
     task = Othello(N) #Stratego(N)

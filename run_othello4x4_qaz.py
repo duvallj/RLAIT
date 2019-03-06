@@ -32,7 +32,7 @@ def run():
         "arenaCompare": 10,
         "startFromEp": 0,
         "load_checkpoint": True,
-        "checkpoint": "checkpoint_6.pth.tar",
+        "checkpoint": "checkpoint_28.pth.tar",
         "checkpoint_dir": "./az_checkpoints",
         "prevHistory": "checkpoint_10.pth.tar.examples",
     })
@@ -45,10 +45,12 @@ def run():
 
     az.init_to_task(task)
     ql.init_to_task(task)
-    ql.load_weights("checkpoint_0.pkl")
+    ql.load_weights("checkpoint_1.pkl")
 
-    run_test.main(task, az, ql)
-
+    for x in range(3):
+        run_test.main(task, az, ql)
+        run_test.main(task, ql, az)
+"""
     for i in range(start_from_ql_iteration, total_ql_iterations):
         ql.train_once()
 
@@ -58,6 +60,6 @@ def run():
         az.train_once()
 
     print("Done training!")
-
+"""
 if __name__ == "__main__":
     run()
