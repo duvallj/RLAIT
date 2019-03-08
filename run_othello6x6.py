@@ -80,11 +80,11 @@ def test(al, az):
             pickle.dump(game_history, f)
 
 def train(ql, az):
-    
+
     ql.load_weights("checkpoint_3.pkl")
 
     for i in range(start_from_ql_iteration, total_ql_iterations):
-        if i%100==0: log.info("QLearning iteration: {}".format(i))
+        log.info("QLearning iteration: {}".format(i))
         ql.train_once()
 
     ql.save_weights("checkpoint_4.pkl")

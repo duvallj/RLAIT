@@ -104,7 +104,8 @@ class QLearning(Approach):
         Notes
         -----
         Selects the move with the highest Q-value given the state.
-        If it's seen the state but not explored a move, it will explore that move.
+        If it's seen the state but not explored any move, it will choose a random
+        move from ones it hasn't explored.
         If it hasn't seen the state, it will choose a random move.
         """
 
@@ -115,6 +116,8 @@ class QLearning(Approach):
             best_move = None
             best_Q = float('-inf')
 
+            # don't always choose same unexplored move
+            random.shuffle(moves)
             for move in moves:
                 a = self.task.move_string_representation(move, state)
                 # encourage exploration
