@@ -22,10 +22,11 @@ start_from_az_iteration = 30
 total_ql_iterations = 10
 start_from_ql_iteration = 0
 
-AZ_CHECKPOINTS = [3, 4, 6, 9, 10, 11, 13, 14, 15, 27]
-QL_CHECKPOINTS = [1, 2, 3]
+AZ_CHECKPOINTS = [3, 4, 6, 9, 10, 11, 13, 14, 15, 27, 30, 31, 32, 44, 45, 47, 48, 50, 51, 55, 63, 65, 68, 70,
+        74, 76, 78, 79, 80, 81, 88, 89, 90, 92, 93, 95, 96, 97, 99]
+QL_CHECKPOINTS = [1, 2, 3, 4]
 
-games_per_round = 13
+games_per_round = 21
 
 def run():
     from rlait.task.Othello import Othello
@@ -35,8 +36,8 @@ def run():
     task = Othello(6)
     az = AlphaZero({
         "numEps": 100,
-        "numMCTSSims": 20,
-        "maxDepth": 300,
+        "numMCTSSims": 40,
+        "maxDepth": 3000,
         "arenaCompare": 10,
         "startFromEp": start_from_az_iteration,
         "load_checkpoint": False,
@@ -56,9 +57,9 @@ def run():
     az.init_to_task(task)
     ql.init_to_task(task)
 
-    train(ql, az)
+    test(task, ql, az)
 
-def test(al, az):
+def test(task, ql, az):
 
     game_history = dict()
 
@@ -71,12 +72,14 @@ def test(al, az):
 
         for x in range(games_per_round):
             log.info("Game {}/{}".format(x+1, games_per_round))
+            az._reset_mcts()
             az_deficit += run_test.play_noprint(task, az, ql)
+            az._reset_mcts()
             az_deficit -= run_test.play_noprint(task, ql, az)
 
         game_history[(ql_n, az_n)] = az_deficit
 
-        with open("t6x6-1.pkl", 'wb') as f:
+        with open("t6x6-3.pkl", 'wb') as f:
             pickle.dump(game_history, f)
 
 def train(ql, az):

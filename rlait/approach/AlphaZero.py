@@ -410,7 +410,7 @@ class AlphaZero(Approach):
 
         return probs, avail_moves
 
-    def get_move(self, state, temp=1):
+    def get_move(self, state, temp=0):
         """
         Gets a move the AI wants to play for the passed in state.
 
@@ -675,13 +675,14 @@ class AlphaZero(Approach):
                 print(f"Turn {it} Player {board.next_player}")
                 print(self.task.state_string_representation(board))
 
+            temp = it < self.args.tempThreshold
             # can't count on consistent player numbers
             # or even consisten player counts
             if board.next_player == first_player_number:
-                move = first_player.get_move(board)
+                move = first_player.get_move(board, temp)
                 board = self.task.apply_move(move, board)
             else:
-                move = second_player.get_move(board)
+                move = second_player.get_move(board, temp)
                 board = self.task.apply_move(move, board)
 
         winners = self.task.get_winners(board)
