@@ -1,16 +1,19 @@
 from ..util import State, Move
+from .Task import Task
 
-class Task:
-    def __init__(self, task_name="empty_task", num_phases=1):
+class Uno(Task):
+    def __init__(self, num_players=4, num_colors=4, num_cards=8):
         """
-        Initializes a task
+        Initializes the Uno task
 
         Parmeters
         ---------
-        task_name : str
-            Name of task, used for printing
-        num_phases : int
-            Total number of different phases this task can have
+        num_players : int (4)
+            The number of players allowed in a game
+        num_colors : int (4)
+            How many different colors the cards can be
+        num_cards : int (8)
+            How many different numbers there can be on a card
         """
         self.task_name = task_name
         self.num_phases = num_phases

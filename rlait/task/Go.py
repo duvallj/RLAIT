@@ -1,6 +1,8 @@
 from ..util import State, Move
+from .Task import Task
+from .go import Board, Array, Location
 
-class Task:
+class Go(Task):
     def __init__(self, task_name="empty_task", num_phases=1):
         """
         Initializes a task

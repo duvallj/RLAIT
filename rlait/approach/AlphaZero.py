@@ -132,42 +132,13 @@ class AlphaZero(Approach):
         self.Es = {}        # stores game.getGameEnded ended for board s
         self.Vs = {}        # stores game.getValidMoves for board s
 
-    def init_to_task(self, task, make_competetor=True):
+    def init_model(self):
         """
-        Customizes an approach to work on
-        a specific task
-
-        Parameters
-        ----------
-        task : Task
-            The Task object to customize to. Should provide
-            all the necessary methods for this approach to customize,
-            like length of move vectors for different phases.
-        competetor : bool (True)
-            Optional, controls whether we initialize a competetor AI for selfplay.
-            When creating a competetor, this is turned to False so we don't
-            infinitely recur.
-
-        Returns
-        -------
-        self
-            For daisy-chaining purposes. Other methods return
-            self for the same reason
-
-        Notes
-        -----
-        Although the parameters for the neural network size are passed through
-        the __init__ method, the neural networks are actually created in this
-        method. This is to handle different sizes of input and output layers
-        required for different Tasks.
+        Initializes AlphaZero with a list of models (one for each task phase)
+        in self.models
         """
-
-        self.task = task
-
         # Assumes that the input board shape will remain constant between phases
         # Unfortunately, there's no good way to do this without that assumption.
-
-        self.task = task
 
         ###########################################
         # Define network based on Task parameters #
@@ -222,6 +193,39 @@ class AlphaZero(Approach):
         # in order to train correctly. Unfortunately, that means we cannot share
         # self.model = Model(inputs=self.input, outputs=self.outputs)
 
+    def init_to_task(self, task, make_competetor=True):
+        """
+        Customizes an approach to work on
+        a specific task
+
+        Parameters
+        ----------
+        task : Task
+            The Task object to customize to. Should provide
+            all the necessary methods for this approach to customize,
+            like length of move vectors for different phases.
+        competetor : bool (True)
+            Optional, controls whether we initialize a competetor AI for selfplay.
+            When creating a competetor, this is turned to False so we don't
+            infinitely recur.
+
+        Returns
+        -------
+        self
+            For daisy-chaining purposes. Other methods return
+            self for the same reason
+
+        Notes
+        -----
+        Although the parameters for the neural network size are passed through
+        the __init__ method, the neural networks are actually created in this
+        method. This is to handle different sizes of input and output layers
+        required for different Tasks.
+        """
+
+        self.task = task
+
+        self.init_model()
         self._reset_mcts()
 
         #######################
