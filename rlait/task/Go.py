@@ -6,11 +6,12 @@ from .go import Board, Array, Location
 class GState(State):
     def __new__(subtype, shape, dtype=float, buffer=None, offset=0,
                 strides=None, order=None,
-                move_num=0, previous=None):
+                move_num=0, previous=None, score=0):
         obj = super(GState, subtype).__new__(subtype, shape, dtype, buffer, offset, strides, order)
 
         obj.move_num = move_num
         obj.previous = previous
+        obj.score = score
 
         return obj
 
@@ -20,47 +21,54 @@ class GState(State):
         super().__array_finalize__(obj)
         self.move_num = getattr(obj, 'move_num', 0)
         self.previous = geattr(obj, 'previous', None)
+        self.score = getattr(obj, 'score', 0)
 
     # copied from https://stackoverflow.com/a/26599346
     def __reduce__(self):
         # Get the parent's __reduce__ tuple
         pickled_state = super(GState, self).__reduce__()
         # Create our own tuple to pass to __setstate__
-        new_state = pickled_state[2] + (self.move_num, self.previous)
+        new_state = pickled_state[2] + (self.move_num, self.previous, self.score)
         # Return a tuple that replaces the parent's __reduce__
         return (pickled_state[0], pickled_state[1], new_state)
 
     def __setstate__(self, state):
         # Set the info attributes accordingly
-        self.move_num = state[-2]
-        self.previous = state[-1]
+        self.move_num = state[-3]
+        self.previous = state[-2]
+        self.score = state[-1]
         # Call the parent's __setstate__ with the original tuple
-        super(GState, self).__setstate__(state[0:-2])
+        super(GState, self).__setstate__(state[0:-3])
 
 
 class Go(Task):
-    def __init__(self, board_size=11):
+    BLACK = 1
+    WHITE = -1
+    EMPTY = 0
+
+    def __init__(self, board_size=9, pass_thresh=0.15):
         """
         Initializes the Go task.
 
         Parmeters
         ---------
-        task_name : str
-            Name of task, used for printing
-        num_phases : int
-            Total number of different phases this task can have
+        board_size : int (9)
+            Size of board to play on
+        pass_thresh : float (0.15)
+            If every value in a move vector is below this,
+            assume the AI wants to pass.
         """
-        super().__init__(task_name="othello", num_phases=1)
+        super().__init__(task_name="go", num_phases=1)
 
         self.N = board_size
 
-        self._empty_move = np.ones((self.N*self.N), dtype=bool).view(Move)
+        self._empty_move = np.zeros((self.N*self.N), dtype=bool).view(Move)
         self._empty_move.state_type = STATE_TYPE_OPTION_TO_INDEX['flat']
 
         self._empty_state = np.zeros((self.N, self.N), dtype=int).view(GState)
         self._empty_state.task_name = self.task_name
         self._empty_state.state_type = STATE_TYPE_OPTION_TO_INDEX['rect']
-        self._empty_state.next_player = 1
+        self._empty_state.next_player = self.BLACK
 
 
     def empty_move(self, phase=0):
@@ -75,7 +83,7 @@ class Go(Task):
         Returns
         -------
         Move
-            A move vector with all fields set to 1
+            A move vector with all fields set to 0
         """
 
         return self._empty_move.copy()
@@ -112,7 +120,9 @@ class Go(Task):
             An expected move for that state
         """
 
-        out = self.empty_move(phase=phase) * 0
+        out = self.empty_move(phase=phase)
+        # include passing move
+        yield out.copy()
         for i in range(self.N * self.N):
             out[i] = 1
             yield out.copy()
@@ -134,7 +144,9 @@ class Go(Task):
 
         mask = self.get_legal_mask(state)
 
-        out = self.empty_move(phase=phase) * 0
+        out = self.empty_move(phase=phase)
+        # include passing move
+        yield out.copy()
 
         for i in range(self.N*self.N):
             if mask[i] == 1:
@@ -142,144 +154,48 @@ class Go(Task):
                 yield out.copy()
                 out[i] = 0
 
-    def move(self, x, y):
-        """
-        Makes a move at the given location for the current turn's color.
-        """
-        # Check if coordinates are occupied
-        if self[x, y] is not self.EMPTY:
-            raise BoardError('Cannot move on top of another piece!')
-
-        # Store history and make move
-        self._push_history()
-        self[x, y] = self._turn
-
-        # Check if any pieces have been taken
-        taken = self._take_pieces(x, y)
-
-        # Check if move is suicidal.  A suicidal move is a move that takes no
-        # pieces and is played on a coordinate which has no liberties.
-        if taken == 0:
-            self._check_for_suicide(x, y)
-
-        # Check if move is redundant.  A redundant move is one that would
-        # return the board to the state at the time of a player's last move.
-        self._check_for_ko()
-
-        self._flip_turn()
-        self._redo = []
-
-    def _check_for_suicide(self, x, y):
+    def _check_for_suicide(self, state, x, y):
         """
         Checks if move is suicidal.
         """
-        if self.count_liberties(x, y) == 0:
-            self._pop_history()
-            raise BoardError('Cannot play on location with no liberties!')
+        if self.count_liberties(state, x, y) == 0:
+            return True
+        return False
 
-    def _check_for_ko(self):
+    def _check_for_ko(self, state):
         """
         Checks if board state is redundant.
         """
-        try:
-            if self._array == self._history[-2][0]:
-                self._pop_history()
-                raise BoardError('Cannot make a move that is redundant!')
-        except IndexError:
-            # Insufficient history...let this one slide
-            pass
+        if not (state.previous is None) and \
+           not (state.previous.previous is None) and \
+           (state.previous.previous == state).all():
+            return True
+        return False
 
-    def _take_pieces(self, x, y):
+    def _take_pieces(self, state, x, y):
         """
         Checks if any pieces were taken by the last move at the specified
         coordinates.  If so, removes them from play and tallies resulting
         points.
         """
         scores = []
-        for p, (x1, y1) in self._get_surrounding(x, y):
+        for p, (x1, y1) in self._get_surrounding(state, x, y):
             # If location is opponent's color and has no liberties, tally it up
-            if p is self._next_turn and self.count_liberties(x1, y1) == 0:
-                score = self._kill_group(x1, y1)
+            if p is state.next_player and self.count_liberties(state, x1, y1) == 0:
+                score = self._kill_group(state, x1, y1)
                 scores.append(score)
-                self._tally(score)
         return sum(scores)
 
-    def _flip_turn(self):
+    def _get_none(self, state, x, y):
         """
-        Iterates the turn counter.
+        Returns None if coordinates are not within array dimensions.
         """
-        self._turn = self._next_turn
-        return self._turn
-
-    @property
-    def _state(self):
-        """
-        Returns the game state as a named tuple.
-        """
-        return self.State(self.copy._array, self._turn, copy(self._score))
-
-    def _load_state(self, state):
-        """
-        Loads the specified game state.
-        """
-        self._array, self._turn, self._score = state
-
-    def _push_history(self):
-        """
-        Pushes game state onto history.
-        """
-        self._history.append(self._state)
-
-    def _pop_history(self):
-        """
-        Pops and loads game state from history.
-        """
-        current_state = self._state
-        try:
-            self._load_state(self._history.pop())
-            return current_state
-        except IndexError:
-            return None
-
-    def undo(self):
-        """
-        Undoes one move.
-        """
-        state = self._pop_history()
-        if state:
-            self._redo.append(state)
-            return state
+        if 0<y<state.shape[0] and 0<x<state.shape[1]:
+            return state[y, x]
         else:
-            raise BoardError('No moves to undo!')
-
-    def redo(self):
-        """
-        Re-applies one move that was undone.
-        """
-        try:
-            self._push_history()
-            self._load_state(self._redo.pop())
-        except IndexError:
-            self._pop_history()
-            raise BoardError('No undone moves to redo!')
-
-    def _tally(self, score):
-        """
-        Adds points to the current turn's score.
-        """
-        self._score[self._turn] += score
-
-    def _get_none(self, x, y):
-        """
-        Same thing as Array.__getitem__, but returns None if coordinates are
-        not within array dimensions.
-        """
-        try:
-            return self[x, y]
-        except ArrayError:
             return None
 
-    def _get_surrounding(self, x, y):
+    def _get_surrounding(self, state, x, y):
         """
         Gets information about the surrounding locations for a specified
         coordinate.  Returns a tuple of the locations clockwise starting from
@@ -292,22 +208,22 @@ class Go(Task):
             (x - 1, y),
         )
         return filter(lambda i: bool(i[0]), [
-            (self._get_none(a, b), (a, b))
+            (self._get_none(state, a, b), (a, b))
             for a, b in coords
         ])
 
-    def _get_group(self, x, y, traversed):
+    def _get_group(self, state, x, y, traversed):
         """
         Recursively traverses adjacent locations of the same color to find all
         locations which are members of the same group.
         """
-        loc = self[x, y]
+        loc = state[y, x]
 
         # Get surrounding locations which have the same color and whose
         # coordinates have not already been traversed
         locations = [
             (p, (a, b))
-            for p, (a, b) in self._get_surrounding(x, y)
+            for p, (a, b) in self._get_surrounding(state, x, y)
             if p is loc and (a, b) not in traversed
         ]
 
@@ -323,38 +239,34 @@ class Go(Task):
         else:
             return traversed
 
-    def get_group(self, x, y):
+    def get_group(self, state, x, y):
         """
         Gets the coordinates for all locations which are members of the same
         group as the location at the given coordinates.
         """
-        if self[x, y] not in self.TURNS:
-            raise BoardError('Can only get group for black or white location')
 
-        return self._get_group(x, y, set())
+        return self._get_group(state, x, y, set())
 
-    def _kill_group(self, x, y):
+    def _kill_group(self, state, x, y):
         """
         Kills a group of black or white pieces and returns its size for
         scoring.
         """
-        if self[x, y] not in self.TURNS:
-            raise BoardError('Can only kill black or white group')
 
-        group = self.get_group(x, y)
+        group = self.get_group(state, x, y)
         score = len(group)
 
         for x1, y1 in group:
-            self[x1, y1] = self.EMPTY
+            state[y1, x1] = self.EMPTY
 
         return score
 
-    def _get_liberties(self, x, y, traversed):
+    def _get_liberties_recur(self, state, x, y, traversed):
         """
         Recursively traverses adjacent locations of the same color to find all
         surrounding liberties for the group at the given coordinates.
         """
-        loc = self[x, y]
+        loc = state[y, x]
 
         if loc is self.EMPTY:
             # Return coords of empty location (this counts as a liberty)
@@ -364,7 +276,7 @@ class Go(Task):
             # and whose coordinates have not already been traversed
             locations = [
                 (p, (a, b))
-                for p, (a, b) in self._get_surrounding(x, y)
+                for p, (a, b) in self._get_surrounding(state, x, y)
                 if (p is loc or p is self.EMPTY) and (a, b) not in traversed
             ]
 
@@ -374,25 +286,25 @@ class Go(Task):
             # Collect unique coordinates of surrounding liberties
             if locations:
                 return set.union(*[
-                    self._get_liberties(a, b, traversed)
+                    self._get_liberties(state, a, b, traversed)
                     for _, (a, b) in locations
                 ])
             else:
                 return set()
 
-    def get_liberties(self, x, y):
+    def _get_liberties(self, state, x, y):
         """
         Gets the coordinates for liberties surrounding the group at the given
         coordinates.
         """
-        return self._get_liberties(x, y, set())
+        return self._get_liberties_recur(state, x, y, set())
 
-    def count_liberties(self, x, y):
+    def _count_liberties(self, state, x, y):
         """
         Gets the number of liberties surrounding the group at the given
         coordinates.
         """
-        return len(self.get_liberties(x, y))
+        return len(self._get_liberties(state, x, y))
 
     def get_legal_mask(self, state):
         """
@@ -412,7 +324,26 @@ class Go(Task):
 
         for y in range(self.N):
             for x in range(self.N):
-                i = y*self.N + x
+                if state[y, x] is self.EMPTY:
+                    continue
+
+                # Check if any pieces have been taken
+                taken = self._take_pieces(state, x, y)
+
+                # Check if move is suicidal.  A suicidal move is a move that takes no
+                # pieces and is played on a coordinate which has no liberties.
+                if taken == 0:
+                    legal = self._check_for_suicide(state, x, y)
+                    if not legal: continue
+
+                # Check if move is redundant.  A redundant move is one that would
+                # return the board to the state at the time of a player's last move.
+                legal = self._check_for_ko(state)
+                if not legal: continue
+
+                mask[x + y*self.N] = 1
+
+        return mask
 
 
     def get_canonical_form(self, state):
@@ -472,6 +403,7 @@ class Go(Task):
             If the phase of the move and state mismatch
         """
 
+        # TODO: How do I check for when they want to pass?
         return None
 
     def is_terminal_state(self, state):
