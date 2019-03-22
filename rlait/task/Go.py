@@ -6,12 +6,11 @@ from .go import Board, Array, Location
 class GState(State):
     def __new__(subtype, shape, dtype=float, buffer=None, offset=0,
                 strides=None, order=None,
-                move_num=0, previous=None, score=0):
+                move_num=0, previous=None):
         obj = super(GState, subtype).__new__(subtype, shape, dtype, buffer, offset, strides, order)
 
         obj.move_num = move_num
         obj.previous = previous
-        obj.score = score
 
         return obj
 
@@ -21,24 +20,22 @@ class GState(State):
         super().__array_finalize__(obj)
         self.move_num = getattr(obj, 'move_num', 0)
         self.previous = geattr(obj, 'previous', None)
-        self.score = getattr(obj, 'score', 0)
 
     # copied from https://stackoverflow.com/a/26599346
     def __reduce__(self):
         # Get the parent's __reduce__ tuple
         pickled_state = super(GState, self).__reduce__()
         # Create our own tuple to pass to __setstate__
-        new_state = pickled_state[2] + (self.move_num, self.previous, self.score)
+        new_state = pickled_state[2] + (self.move_num, self.previous)
         # Return a tuple that replaces the parent's __reduce__
         return (pickled_state[0], pickled_state[1], new_state)
 
     def __setstate__(self, state):
         # Set the info attributes accordingly
-        self.move_num = state[-3]
-        self.previous = state[-2]
-        self.score = state[-1]
+        self.move_num = state[-2]
+        self.previous = state[-1]
         # Call the parent's __setstate__ with the original tuple
-        super(GState, self).__setstate__(state[0:-3])
+        super(GState, self).__setstate__(state[0:-2])
 
 
 class Go(Task):
@@ -46,7 +43,7 @@ class Go(Task):
     WHITE = -1
     EMPTY = 0
 
-    def __init__(self, board_size=9, pass_thresh=0.15):
+    def __init__(self, board_size=9, komi=0.5):
         """
         Initializes the Go task.
 
@@ -54,21 +51,24 @@ class Go(Task):
         ---------
         board_size : int (9)
             Size of board to play on
-        pass_thresh : float (0.15)
-            If every value in a move vector is below this,
-            assume the AI wants to pass.
+        komi : float (0.5)
+            Number of points to give to White due to their disadvantage
         """
         super().__init__(task_name="go", num_phases=1)
 
         self.N = board_size
 
-        self._empty_move = np.zeros((self.N*self.N), dtype=bool).view(Move)
+        # one extra spot to store passing move
+        self._empty_move = np.zeros((self.N*self.N + 1), dtype=bool).view(Move)
         self._empty_move.state_type = STATE_TYPE_OPTION_TO_INDEX['flat']
 
-        self._empty_state = np.zeros((self.N, self.N), dtype=int).view(GState)
+        # one extra row to store prisoner differential
+        self._empty_state = np.zeros((self.N+1, self.N), dtype=int).view(GState)
         self._empty_state.task_name = self.task_name
         self._empty_state.state_type = STATE_TYPE_OPTION_TO_INDEX['rect']
         self._empty_state.next_player = self.BLACK
+        # include komi as part of initial score
+        self._empty_state[self.N, 0] = -komi
 
 
     def empty_move(self, phase=0):
@@ -121,9 +121,7 @@ class Go(Task):
         """
 
         out = self.empty_move(phase=phase)
-        # include passing move
-        yield out.copy()
-        for i in range(self.N * self.N):
+        for i in range(self.N * self.N + 1):
             out[i] = 1
             yield out.copy()
             out[i] = 0
@@ -145,10 +143,8 @@ class Go(Task):
         mask = self.get_legal_mask(state)
 
         out = self.empty_move(phase=phase)
-        # include passing move
-        yield out.copy()
 
-        for i in range(self.N*self.N):
+        for i in range(self.N*self.N + 1):
             if mask[i] == 1:
                 out[i] = 1
                 yield out.copy()
@@ -181,7 +177,7 @@ class Go(Task):
         scores = []
         for p, (x1, y1) in self._get_surrounding(state, x, y):
             # If location is opponent's color and has no liberties, tally it up
-            if p is state.next_player and self.count_liberties(state, x1, y1) == 0:
+            if p is -1*state.next_player and self.count_liberties(state, x1, y1) == 0:
                 score = self._kill_group(state, x1, y1)
                 scores.append(score)
         return sum(scores)
@@ -321,6 +317,8 @@ class Go(Task):
         """
 
         mask = self.empty_move(phase=phase)
+        # passing always valid
+        mask[-1] = 1
 
         for y in range(self.N):
             for x in range(self.N):
@@ -328,7 +326,7 @@ class Go(Task):
                     continue
 
                 # Check if any pieces have been taken
-                taken = self._take_pieces(state, x, y)
+                taken = self._take_pieces(state.copy(), x, y)
 
                 # Check if move is suicidal.  A suicidal move is a move that takes no
                 # pieces and is played on a coordinate which has no liberties.
@@ -401,10 +399,36 @@ class Go(Task):
             If the move is not legal for the state
         TypeError
             If the phase of the move and state mismatch
+
+        Notes
+        -----
+        If the player passes (last value in the move vector is highest), then
+        they give a prisoner to the opponent and the turn flips.
         """
 
-        # TODO: How do I check for when they want to pass?
-        return None
+        mask = self.get_legal_mask(state)
+        masked_move = move * mask
+        if np.sum(masked_move) == 0:
+            raise BadMoveException("Error: move {} is illegal for board {}".format(move, state))
+            return None
+
+        move_loc = np.unravel_index(np.argmax(move * mask), move.shape)[0]
+        nstate = state.copy()
+
+        if move_loc == self.N * self.N:
+            # player passes, add 1 to opponent score
+            nstate[self.N, 0] -= state.next_player
+        else:
+            # player makes a move
+            y, x = move_loc // self.N, move_loc % self.N
+            # We already know it is legal (due to earlier mask calculation)
+            nstate[self.N, 0] += state.next_player * self._take_pieces(nstate, y, x)
+            nstate[y, x] = state.next_player
+
+        nstate.next_player = -1 * state.next_player
+        nstate.previous = state
+
+        return nstate
 
     def is_terminal_state(self, state):
         """
@@ -419,9 +443,61 @@ class Go(Task):
         -------
         bool
             True if terminal, False if not
+
+        Notes
+        -----
+        A game of Go only ends when both players willingly or are forced to pass.
+        This is kept track of in the state by checking if the current board
+        is equal to one two boards previous (impossible with Ko rule, only
+        happens with double pass).
         """
 
-        return None
+        return not (state.previous is None) and \
+            not (state.previous.previous is None) and \
+            (state == state.previous.previous).all()
+
+    def _get_territory_recur(self, state, x, y, traversed):
+        """
+        Returns color, traversed
+
+        color value key:
+        self.BLACK - empty group is surrounded by black
+        self.WHITE - empty group is surrounded by white
+        self.EMPTY - empty group has no boundaries, ie still exploring or blank board
+        None - mixed white and black borders
+
+
+        Should always be called starting from an empty piece.
+        """
+        color = self.EMPTY
+        locations = []
+        traversed.add((x, y))
+
+        for p, (a, b) in self._get_surrounding(state, x, y):
+            if (a, b) not in traversed:
+                if p is self.EMPTY:
+                    locations.push_back((a, b))
+                else:
+                    if color is self.EMPTY:
+                        color = p
+                    else:
+                        # there is already a color conflict
+                        color = None
+
+        for (a, b) in locations:
+            new_color, new_traversed = self._get_territory_recur(state, a, b, traversed)
+            if color is self.EMPTY:
+                # always update with new if we don't have a color yet
+                color = new_color
+            elif not (new_color is self.EMPTY or color is new_color):
+                # breaking this down:
+                # if the old color is something to update with, and there is
+                # a conflict, update to have a conflict. Catches previous conflicts too.
+                color = None
+
+            traversed = traversed.union(new_traversed)
+
+        return color, traversed
 
     def get_winners(self, state):
         """
@@ -436,9 +512,37 @@ class Go(Task):
         -------
         set
             A set containing all the winners. Empty if no winners. Ties depend on game implementation.
-        """
 
-        return None
+        Notes
+        -----
+        The winners in Go depend on the the differential in territory captured
+        combined with the differential in prisoners captured by the other player.
+        Basically,
+        `black_score = black_territory - black_prisoners`
+        `white_score = white_territory - white_prisoners`
+        The prisoner differential is kept within the state at localtion (N, 0)
+        off the board, `white_prisoners - black_prisoners`. This includes komi
+        to begin with. So, we can just add up the differentials and get a score.
+        """
+        territory_diff = 0
+
+        traversed = set()
+        for y in range(self.N):
+            for x in range(self.N):
+                if (x, y) not in traversed and state[y, x] is self.EMPTY:
+                    color, new_traversed = self._get_territory_recur(state, x, y, set())
+                    # adds to diff if black, subtracts from diff if white
+                    territory_diff += color * len(new_traversed)
+
+                    traversed = traversed.union(new_traversed)
+
+        if territory_diff + state[self.N, 0] > 0:
+            return {self.BLACK}
+        elif territory_diff + state[self.N, 0] < 0:
+            return {self.WHITE}
+        else:
+            # shouldn't happen with a good komi
+            return set()
 
     def state_string_representation(self, state):
         """
