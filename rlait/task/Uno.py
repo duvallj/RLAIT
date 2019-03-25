@@ -2,7 +2,7 @@ from ..util import State, Move
 from .Task import Task
 
 class Uno(Task):
-    def __init__(self, num_players=4, num_colors=4, num_cards=8):
+    def __init__(self, num_players=4, num_colors=4, num_cards=8, init_hand_size=7):
         """
         Initializes the Uno task
 
@@ -14,10 +14,27 @@ class Uno(Task):
             How many different colors the cards can be
         num_cards : int (8)
             How many different numbers there can be on a card
+        init_hand_size : int (7)
+            How many cards players should be dealt initially
         """
-        self.task_name = task_name
-        self.num_phases = num_phases
+        super().__init__(task_name="uno", num_phases=1)
 
+        self.num_players = num_players
+        self.num_colors = num_colors
+        self.num_cards = num_cards
+        self.init_hand_size = init_hand_size
+
+        self._empty_move = np.zeros(self.num_colors * self.num_cards + 1).view(Move)
+        self._empty_move.state_type = STATE_TYPE_OPTION_TO_INDEX['flat']
+
+        self._empty_state = np.zeros((self.num_players+1, self.num_colors, self.num_cards)).view(State)
+        self._empty_state.task_name = self.task_name
+        self._empty_state.state_type = STATE_TYPE_OPTION_TO_INDEX['deeprect']
+        self._empty_state.next_player = 0
+
+
+    def get_random_card(self):
+        return random.randint(0, self.num_colors-1), random.randint(0, self.num_cards-1)
 
     def empty_move(self, phase=0):
         """
@@ -31,10 +48,10 @@ class Uno(Task):
         Returns
         -------
         Move
-            A move vector with all fields set to 1
+            A move vector with all fields set to 0
         """
 
-        return None
+        return self._empty_move.copy()
 
     def empty_state(self, phase=0):
         """
@@ -51,7 +68,17 @@ class Uno(Task):
             A state vector with no players present
         """
 
-        return None
+        # a lot of times, AIs expect an "empty state" to actually be the initial state
+        state = self._empty_state.copy()
+
+        # initial card in the pile
+        state[-1, self.get_random_card()] = 1
+
+        for p in range(num_players):
+            for c in range(self.init_hand_size):
+                state[p, self.get_random_card()] += 1
+
+        return state
 
     def iterate_all_moves(self, phase=0):
         """
@@ -68,7 +95,12 @@ class Uno(Task):
             An expected move for that state
         """
 
-        yield None
+        out = self.empty_move(phase=phase)
+
+        for i in range(self.num_colors * self.num_cards + 1):
+            out[i] = 1
+            yield out.copy()
+            out[i] = 0
 
 
     def iterate_legal_moves(self, state):
@@ -84,7 +116,15 @@ class Uno(Task):
         Move
         """
 
-        yield None
+        out = self.empty_move(phase=state.phase)
+
+        legal_mask = self.get_legal_mask(state)
+
+        for i in range(self.num_colors * self.num_cards + 1):
+            if legal_mask[i] == 1:
+                out[i] = 1
+                yield out.copy()
+                out[i] = 0
 
     def get_legal_mask(self, state):
         """
@@ -100,7 +140,18 @@ class Uno(Task):
             A move vector with 1s in the place where the state's `next_player` can go
         """
 
-        return None
+        out = self.empty_move(phase=state.phase)
+
+        for y in range(self.num_colors):
+            for x in range(self.num_cards):
+                if state[state.next_player, y, x] and \
+                  (state[-1, :, x].any() or state[-1, y, :].any()): # any of same color or number
+                    out[y*self.num_cards+x] = 1
+
+        # drawing a card always valid
+        out[-1] = 1
+
+        return out
 
     def get_canonical_form(self, state):
         """
@@ -117,6 +168,10 @@ class Uno(Task):
             The original state, assumed to be from player 0's perspective, transformed to
             be from state's `next_player`'s perspective.
         """
+
+        # TODO: we do want some way to tell how many cards the other players have
+        # would a scalar be best or should there be some other way?
+        # think about it.
 
         return None
 
@@ -145,6 +200,14 @@ class Uno(Task):
             If the phase of the move and state mismatch
         """
 
+        legal_mask = self.get_legal_mask(state)
+        legal_moves = move * legal_mask
+
+        if not legal_moves.any():
+            raise BadMoveException("Error: no legal moves provided in {} for the state {}".format(move, state))
+
+
+
         return None
 
     def is_terminal_state(self, state):
@@ -162,7 +225,13 @@ class Uno(Task):
             True if terminal, False if not
         """
 
-        return None
+        for p in range(self.num_players):
+            if not state[p, :, :].any():
+                # player has played all their cards
+                return True
+
+        # no on has played all their cards
+        return False
 
     def get_winners(self, state):
         """
