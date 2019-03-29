@@ -1,6 +1,7 @@
 from ..util import State, Move
 from .Task import Task
-from .go import Board, Array, Location
+
+import numpy as np
 
 
 class GState(State):

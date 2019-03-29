@@ -1,5 +1,8 @@
-from ..util import State, Move
+from ..util import State, Move, BadMoveException, STATE_TYPE_OPTION_TO_INDEX
 from .Task import Task
+
+import numpy as np
+import random
 
 class Uno(Task):
     def __init__(self, num_players=4, num_colors=4, num_cards=8, init_hand_size=7):
@@ -24,10 +27,12 @@ class Uno(Task):
         self.num_cards = num_cards
         self.init_hand_size = init_hand_size
 
-        self._empty_move = np.zeros(self.num_colors * self.num_cards + 1).view(Move)
+        self._empty_move = np.zeros(self.num_colors * self.num_cards + 1, dtype=int).view(Move)
         self._empty_move.state_type = STATE_TYPE_OPTION_TO_INDEX['flat']
 
-        self._empty_state = np.zeros((self.num_players+1, self.num_colors, self.num_cards)).view(State)
+        # players aren't first so that it makes more sense for AI algorithms
+        # with the standard 'channels_last' structure
+        self._empty_state = np.zeros((self.num_colors, self.num_cards, self.num_players+1), dtype=int).view(State)
         self._empty_state.task_name = self.task_name
         self._empty_state.state_type = STATE_TYPE_OPTION_TO_INDEX['deeprect']
         self._empty_state.next_player = 0
@@ -35,6 +40,9 @@ class Uno(Task):
 
     def get_random_card(self):
         return random.randint(0, self.num_colors-1), random.randint(0, self.num_cards-1)
+
+    def next_player(self, player):
+        return (player + 1) % self.num_players
 
     def empty_move(self, phase=0):
         """
@@ -65,18 +73,20 @@ class Uno(Task):
         Returns
         -------
         State
-            A state vector with no players present
+            A state vector initialized to a starting setup
         """
 
         # a lot of times, AIs expect an "empty state" to actually be the initial state
         state = self._empty_state.copy()
 
         # initial card in the pile
-        state[-1, self.get_random_card()] = 1
+        c, n = self.get_random_card()
+        state[c, n, -1] = 1
 
-        for p in range(num_players):
+        for p in range(self.num_players):
             for c in range(self.init_hand_size):
-                state[p, self.get_random_card()] += 1
+                c, n = self.get_random_card()
+                state[c, n, p] += 1
 
         return state
 
@@ -142,11 +152,15 @@ class Uno(Task):
 
         out = self.empty_move(phase=state.phase)
 
-        for y in range(self.num_colors):
-            for x in range(self.num_cards):
-                if state[state.next_player, y, x] and \
-                  (state[-1, :, x].any() or state[-1, y, :].any()): # any of same color or number
-                    out[y*self.num_cards+x] = 1
+        c_color, c_number = np.unravel_index(np.argmax(state[..., -1]), (self.num_colors, self.num_cards))
+
+        # get all the cards in hand with the current color or number
+        for color in range(self.num_colors):
+            if state[color, c_number, state.next_player]:
+                out[color*self.num_cards + c_number] = 1
+        for number in range(self.num_cards):
+            if state[c_color, number, state.next_player]:
+                out[c_color*self.num_cards + number] = 1
 
         # drawing a card always valid
         out[-1] = 1
@@ -173,7 +187,18 @@ class Uno(Task):
         # would a scalar be best or should there be some other way?
         # think about it.
 
-        return None
+        nstate = state.copy()
+
+        # rotate hands around until current player is in slot 0
+        nstate[..., :-1] = np.roll(nstate[..., :-1], -1*state.next_player, axis=2)
+        # mask other player's hands, replacing all their values with
+        # the number of cards they have
+        for p in range(1, self.num_players):
+            nstate[..., p] = np.sum(nstate[..., p])
+
+        nstate.next_player = 0
+
+        return nstate
 
 
     def apply_move(self, move, state):
@@ -206,9 +231,26 @@ class Uno(Task):
         if not legal_moves.any():
             raise BadMoveException("Error: no legal moves provided in {} for the state {}".format(move, state))
 
+        index = np.argmax(legal_moves)
+        nstate = state.copy()
 
+        if index == self.num_cards * self.num_colors:
+            # pass and draw
+            c, n = self.get_random_card()
+            nstate[c, n, state.next_player] += 1
+        else:
+            color, number = np.unravel_index(index, (self.num_colors, self.num_cards))
+            # clear the field
+            nstate[..., -1] = 0
+            # set the new card
+            nstate[color, number, -1] = 1
+            # decrease the amount of cards the player has
+            nstate[color, number, state.next_player] -= 1
 
-        return None
+        # get the next player
+        nstate.next_player = self.next_player(state.next_player)
+
+        return nstate
 
     def is_terminal_state(self, state):
         """
@@ -226,7 +268,7 @@ class Uno(Task):
         """
 
         for p in range(self.num_players):
-            if not state[p, :, :].any():
+            if not state[..., p].any():
                 # player has played all their cards
                 return True
 
@@ -245,10 +287,34 @@ class Uno(Task):
         Returns
         -------
         set
-            A set containing all the winners. Empty if no winners. Ties depend on game implementation.
+            A set containing all the winners. Empty if no winners.
+
+        Notes
+        -----
+        There are no ties in Uno, it is impossible
         """
 
-        return None
+        winners = set()
+        for p in range(self.num_players):
+            if not state[..., p].any():
+                winners.add(p)
+        return winners
+
+    def color_number_to_string(self, color, number):
+        if self.num_colors < 26:
+            return chr(65+color) + '-' + str(number)
+        else:
+            return '{}-{}'.format(color, number)
+
+    def string_to_color_number(self, string):
+        color, number = string.split('-')
+        if self.num_colors < 26:
+            color = ord(color) - 65
+        else:
+            color = int(color)
+        number = int(number)
+
+        return color, number
 
     def state_string_representation(self, state):
         """
@@ -261,9 +327,32 @@ class Uno(Task):
         Returns
         -------
         str
+
+        Notes
+        -----
+        Expects a non-canoncial state, canonicalizes internally
         """
 
-        return None
+        cstate = self.get_canonical_form(state)
+
+        out = "player {}\n".format(state.next_player)
+        out += 'hand: '
+
+        cards_in_hand = []
+        for c in range(self.num_colors):
+            for n in range(self.num_cards):
+                if cstate[c, n, 0]:
+                    for x in range(cstate[c, n, 0]):
+                        cards_in_hand.append(self.color_number_to_string(c, n))
+
+        out += ' '.join(cards_in_hand) + '\n'
+        out += 'field: {}\n'.format(self.color_number_to_string(
+            *np.unravel_index(np.argmax(state[..., -1]), (self.num_colors, self.num_cards))
+        ))
+
+        out += 'other players: {}\n'.format(' '.join(str(cstate[0, 0, p]) for p in range(1, self.num_players)))
+
+        return out
 
     def move_string_representation(self, move, state):
         """
@@ -278,7 +367,13 @@ class Uno(Task):
         str
         """
 
-        return None
+        index = np.argmax(move)
+
+        if index == self.num_colors * self.num_cards:
+            return 'PASS'
+        else:
+            color, number = np.unravel_index(index, (self.num_colors, self.num_cards))
+            return self.color_number_to_string(color, number)
 
     def string_to_move(self, move_str, phase=0):
         """
@@ -294,4 +389,15 @@ class Uno(Task):
         Move
         """
 
-        return None
+        out = self.empty_move(phase=phase)
+
+        if move_str == 'PASS':
+            out[-1] = 1
+        else:
+            try:
+                color, number = self.string_to_color_number(move_str)
+                out[color*self.num_cards+number] = 1
+            except:
+                raise BadMoveException("Error: move {} is formatted incorrectly".format(move_str))
+
+        return out
