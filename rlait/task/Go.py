@@ -1,8 +1,9 @@
-from ..util import State, Move
+from ..util import State, Move, BadMoveException, STATE_TYPE_OPTION_TO_INDEX
 from .Task import Task
 
 import numpy as np
 
+PLAYER_TO_STRING = ['.','@','o']
 
 class GState(State):
     def __new__(subtype, shape, dtype=float, buffer=None, offset=0,
@@ -20,7 +21,7 @@ class GState(State):
 
         super().__array_finalize__(obj)
         self.move_num = getattr(obj, 'move_num', 0)
-        self.previous = geattr(obj, 'previous', None)
+        self.previous = getattr(obj, 'previous', None)
 
     # copied from https://stackoverflow.com/a/26599346
     def __reduce__(self):
@@ -69,7 +70,7 @@ class Go(Task):
         self._empty_state.state_type = STATE_TYPE_OPTION_TO_INDEX['rect']
         self._empty_state.next_player = self.BLACK
         # include komi as part of initial score
-        self._empty_state[self.N, 0] = -komi
+        self._empty_state[self.N, 0] = -int(komi)
 
 
     def empty_move(self, phase=0):
@@ -143,7 +144,7 @@ class Go(Task):
 
         mask = self.get_legal_mask(state)
 
-        out = self.empty_move(phase=phase)
+        out = self.empty_move(phase=state.phase)
 
         for i in range(self.N*self.N + 1):
             if mask[i] == 1:
@@ -155,7 +156,7 @@ class Go(Task):
         """
         Checks if move is suicidal.
         """
-        if self.count_liberties(state, x, y) == 0:
+        if self._count_liberties(state, x, y) == 0:
             return True
         return False
 
@@ -178,7 +179,7 @@ class Go(Task):
         scores = []
         for p, (x1, y1) in self._get_surrounding(state, x, y):
             # If location is opponent's color and has no liberties, tally it up
-            if p is -1*state.next_player and self.count_liberties(state, x1, y1) == 0:
+            if p == -1*state.next_player and self._count_liberties(state, x1, y1) == 0:
                 score = self._kill_group(state, x1, y1)
                 scores.append(score)
         return sum(scores)
@@ -265,17 +266,21 @@ class Go(Task):
         """
         loc = state[y, x]
 
-        if loc is self.EMPTY:
+        if loc == self.EMPTY:
             # Return coords of empty location (this counts as a liberty)
             return set([(x, y)])
         else:
             # Get surrounding locations which are empty or have the same color
             # and whose coordinates have not already been traversed
-            locations = [
-                (p, (a, b))
-                for p, (a, b) in self._get_surrounding(state, x, y)
-                if (p is loc or p is self.EMPTY) and (a, b) not in traversed
-            ]
+            locations = []
+            print("counting")
+            for p, (a, b) in self._get_surrounding(state, x, y):
+                print(p)
+                print(p == loc or p == self.EMPTY)
+                print((a, b), (a, b) not in traversed)
+                if (p == loc or p == self.EMPTY) and (a, b) not in traversed:
+                    locations.append((p, (a, b)))
+            print("done counting")
 
             # Mark current coordinates as having been traversed
             traversed.add((x, y))
@@ -301,7 +306,9 @@ class Go(Task):
         Gets the number of liberties surrounding the group at the given
         coordinates.
         """
-        return len(self._get_liberties(state, x, y))
+        liberties = self._get_liberties(state, x, y)
+        print(x, y, liberties)
+        return len(liberties)
 
     def get_legal_mask(self, state):
         """
@@ -317,14 +324,13 @@ class Go(Task):
             A move vector with 1s in the place where the state's `next_player` can go
         """
 
-        mask = self.empty_move(phase=phase)
+        mask = self.empty_move(phase=state.phase)
         # passing always valid
         mask[-1] = 1
 
         for y in range(self.N):
             for x in range(self.N):
-                if state[y, x] is self.EMPTY:
-                    continue
+                if not (state[y, x] == self.EMPTY): continue
 
                 # Check if any pieces have been taken
                 taken = self._take_pieces(state.copy(), x, y)
@@ -332,13 +338,15 @@ class Go(Task):
                 # Check if move is suicidal.  A suicidal move is a move that takes no
                 # pieces and is played on a coordinate which has no liberties.
                 if taken == 0:
-                    legal = self._check_for_suicide(state, x, y)
-                    if not legal: continue
+                    illegal = self._check_for_suicide(state, x, y)
+                    if illegal: continue
+                else:
+                    print(taken)
 
                 # Check if move is redundant.  A redundant move is one that would
                 # return the board to the state at the time of a player's last move.
-                legal = self._check_for_ko(state)
-                if not legal: continue
+                illegal = self._check_for_ko(state)
+                if illegal: continue
 
                 mask[x + y*self.N] = 1
 
@@ -476,10 +484,10 @@ class Go(Task):
 
         for p, (a, b) in self._get_surrounding(state, x, y):
             if (a, b) not in traversed:
-                if p is self.EMPTY:
+                if p == self.EMPTY:
                     locations.push_back((a, b))
                 else:
-                    if color is self.EMPTY:
+                    if color == self.EMPTY:
                         color = p
                     else:
                         # there is already a color conflict
@@ -487,10 +495,10 @@ class Go(Task):
 
         for (a, b) in locations:
             new_color, new_traversed = self._get_territory_recur(state, a, b, traversed)
-            if color is self.EMPTY:
+            if color == self.EMPTY:
                 # always update with new if we don't have a color yet
                 color = new_color
-            elif not (new_color is self.EMPTY or color is new_color):
+            elif not (new_color == self.EMPTY or color == new_color):
                 # breaking this down:
                 # if the old color is something to update with, and there is
                 # a conflict, update to have a conflict. Catches previous conflicts too.
@@ -530,7 +538,7 @@ class Go(Task):
         traversed = set()
         for y in range(self.N):
             for x in range(self.N):
-                if (x, y) not in traversed and state[y, x] is self.EMPTY:
+                if (x, y) not in traversed and state[y, x] == self.EMPTY:
                     color, new_traversed = self._get_territory_recur(state, x, y, set())
                     # adds to diff if black, subtracts from diff if white
                     territory_diff += color * len(new_traversed)
@@ -542,8 +550,8 @@ class Go(Task):
         elif territory_diff + state[self.N, 0] < 0:
             return {self.WHITE}
         else:
-            # shouldn't happen with a good komi
-            return set()
+            # are tied, white wins automatically
+            return {self.WHITE}
 
     def state_string_representation(self, state):
         """
@@ -558,7 +566,15 @@ class Go(Task):
         str
         """
 
-        return None
+        out = str(state.next_player) + "\n"
+        for y in range(self.N):
+            for x in range(self.N):
+                out += PLAYER_TO_STRING[state[y, x]]
+            out += "\n"
+        out += "pdiff: {}\n".format(state[self.N, 0]-0.5)
+
+        return out
+
 
     def move_string_representation(self, move, state):
         """
@@ -573,7 +589,12 @@ class Go(Task):
         str
         """
 
-        return None
+        loc = np.unravel_index(np.argmax(move), move.shape)[0]
+
+        if loc == self.N * self.N:
+            return 'PASS'
+        else:
+            return "{},{}".format(loc // self.N, loc % self.N)
 
     def string_to_move(self, move_str, phase=0):
         """
@@ -589,4 +610,13 @@ class Go(Task):
         Move
         """
 
-        return None
+        move = self.empty_move(phase=phase)
+
+        if move_str == 'PASS':
+            move[-1] = 1
+        else:
+            y, x = move_str.split(',')
+            y, x = int(y), int(x)
+            move[y*self.N + x] = 1
+
+        return move
