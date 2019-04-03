@@ -13,6 +13,7 @@ class GState(State):
 
         obj.move_num = move_num
         obj.previous = previous
+        obj.mask = None
 
         return obj
 
@@ -22,6 +23,7 @@ class GState(State):
         super().__array_finalize__(obj)
         self.move_num = getattr(obj, 'move_num', 0)
         self.previous = getattr(obj, 'previous', None)
+        self.mask = None
 
     # copied from https://stackoverflow.com/a/26599346
     def __reduce__(self):
@@ -36,6 +38,7 @@ class GState(State):
         # Set the info attributes accordingly
         self.move_num = state[-2]
         self.previous = state[-1]
+        self.mask = None
         # Call the parent's __setstate__ with the original tuple
         super(GState, self).__setstate__(state[0:-2])
 
@@ -188,7 +191,7 @@ class Go(Task):
         """
         Returns None if coordinates are not within array dimensions.
         """
-        if 0<y<state.shape[0] and 0<x<state.shape[1]:
+        if 0<=y<self.N and 0<=x<self.N:
             return state[y, x]
         else:
             return None
@@ -205,7 +208,7 @@ class Go(Task):
             (x, y + 1),
             (x - 1, y),
         )
-        return filter(lambda i: bool(i[0]), [
+        return filter(lambda i: not (i[0] is None), [
             (self._get_none(state, a, b), (a, b))
             for a, b in coords
         ])
@@ -222,7 +225,7 @@ class Go(Task):
         locations = [
             (p, (a, b))
             for p, (a, b) in self._get_surrounding(state, x, y)
-            if p is loc and (a, b) not in traversed
+            if p == loc and (a, b) not in traversed
         ]
 
         # Add current coordinates to traversed coordinates
@@ -231,7 +234,7 @@ class Go(Task):
         # Find coordinates of similar neighbors
         if locations:
             return traversed.union(*[
-                self._get_group(a, b, traversed)
+                self._get_group(state, a, b, traversed)
                 for _, (a, b) in locations
             ])
         else:
@@ -273,14 +276,9 @@ class Go(Task):
             # Get surrounding locations which are empty or have the same color
             # and whose coordinates have not already been traversed
             locations = []
-            print("counting")
             for p, (a, b) in self._get_surrounding(state, x, y):
-                print(p)
-                print(p == loc or p == self.EMPTY)
-                print((a, b), (a, b) not in traversed)
                 if (p == loc or p == self.EMPTY) and (a, b) not in traversed:
                     locations.append((p, (a, b)))
-            print("done counting")
 
             # Mark current coordinates as having been traversed
             traversed.add((x, y))
@@ -288,7 +286,7 @@ class Go(Task):
             # Collect unique coordinates of surrounding liberties
             if locations:
                 return set.union(*[
-                    self._get_liberties(state, a, b, traversed)
+                    self._get_liberties_recur(state, a, b, traversed)
                     for _, (a, b) in locations
                 ])
             else:
@@ -307,7 +305,6 @@ class Go(Task):
         coordinates.
         """
         liberties = self._get_liberties(state, x, y)
-        print(x, y, liberties)
         return len(liberties)
 
     def get_legal_mask(self, state):
@@ -332,6 +329,8 @@ class Go(Task):
             for x in range(self.N):
                 if not (state[y, x] == self.EMPTY): continue
 
+                state[y, x] = state.next_player
+
                 # Check if any pieces have been taken
                 taken = self._take_pieces(state.copy(), x, y)
 
@@ -339,16 +338,21 @@ class Go(Task):
                 # pieces and is played on a coordinate which has no liberties.
                 if taken == 0:
                     illegal = self._check_for_suicide(state, x, y)
-                    if illegal: continue
-                else:
-                    print(taken)
+                    if illegal:
+                        state[y, x] = self.EMPTY
+                        continue
 
                 # Check if move is redundant.  A redundant move is one that would
                 # return the board to the state at the time of a player's last move.
                 illegal = self._check_for_ko(state)
-                if illegal: continue
+                if illegal:
+                    state[y, x] = self.EMPTY
+                    continue
 
+                state[y, x] = self.EMPTY
                 mask[x + y*self.N] = 1
+
+        state.mask = mask
 
         return mask
 
@@ -415,13 +419,14 @@ class Go(Task):
         they give a prisoner to the opponent and the turn flips.
         """
 
-        mask = self.get_legal_mask(state)
-        masked_move = move * mask
+        if state.mask is None:
+            state.mask = self.get_legal_mask(state)
+        masked_move = move * state.mask
         if np.sum(masked_move) == 0:
             raise BadMoveException("Error: move {} is illegal for board {}".format(move, state))
             return None
 
-        move_loc = np.unravel_index(np.argmax(move * mask), move.shape)[0]
+        move_loc = np.unravel_index(np.argmax(masked_move), move.shape)[0]
         nstate = state.copy()
 
         if move_loc == self.N * self.N:
@@ -431,8 +436,8 @@ class Go(Task):
             # player makes a move
             y, x = move_loc // self.N, move_loc % self.N
             # We already know it is legal (due to earlier mask calculation)
-            nstate[self.N, 0] += state.next_player * self._take_pieces(nstate, y, x)
             nstate[y, x] = state.next_player
+            nstate[self.N, 0] += state.next_player * self._take_pieces(nstate, x, y)
 
         nstate.next_player = -1 * state.next_player
         nstate.previous = state
@@ -541,7 +546,8 @@ class Go(Task):
                 if (x, y) not in traversed and state[y, x] == self.EMPTY:
                     color, new_traversed = self._get_territory_recur(state, x, y, set())
                     # adds to diff if black, subtracts from diff if white
-                    territory_diff += color * len(new_traversed)
+                    if not (color is None):
+                        territory_diff += color * len(new_traversed)
 
                     traversed = traversed.union(new_traversed)
 
