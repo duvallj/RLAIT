@@ -1,7 +1,7 @@
-from rlait.task.stratego.Stratego import Stratego
-from rlait.approach.random.Random import Random
-from rlait.approach.alphazero.AlphaZero import AlphaZero
-from rlait.approach.interactive_player.InteractivePlayer import InteractivePlayer
+from rlait.task.Stratego import Stratego
+from rlait.approach.Random import Random
+from rlait.approach.AlphaZero import AlphaZero
+from rlait.approach.InteractivePlayer import InteractivePlayer
 from rlait.util import dotdict, BadMoveException
 
 import numpy as np

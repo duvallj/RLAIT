@@ -66,6 +66,24 @@ class State(np.ndarray):
         self.state_type = getattr(obj, 'state_type', 0)
         self.next_player = getattr(obj, 'next_player', 0)
 
+    # copied from https://stackoverflow.com/a/26599346
+    def __reduce__(self):
+        # Get the parent's __reduce__ tuple
+        pickled_state = super(State, self).__reduce__()
+        # Create our own tuple to pass to __setstate__
+        new_state = pickled_state[2] + (self.task_name, self.phase, self.state_type, self.next_player,)
+        # Return a tuple that replaces the parent's __reduce__
+        return (pickled_state[0], pickled_state[1], new_state)
+
+    def __setstate__(self, state):
+        # Set the info attributes accordingly
+        self.task_name = state[-4]
+        self.phase = state[-3]
+        self.state_type = state[-2]
+        self.next_player = state[-1]
+        # Call the parent's __setstate__ with the original tuple
+        super(State, self).__setstate__(state[0:-4])
+
 
 class Move(State):
     """
