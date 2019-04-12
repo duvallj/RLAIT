@@ -334,6 +334,8 @@ class AlphaZero(Approach):
 
             self.Vs[s] = list(self.task.iterate_legal_moves(board))
             self.Ns[s] = 0
+            print("For state {}".format(self.task.state_string_representation(canonicalBoard)))
+            print("Predicted move: {} and value: {}".format(self.Ps[s], v))
             return -v
 
         valid_moves = self.Vs[s]
@@ -353,6 +355,8 @@ class AlphaZero(Approach):
                 best_act = a
 
         a = best_act
+        print("For state {}".format(self.task.state_string_representation(board)))
+        print("Best move is {}".format(a))
         next_s = self.task.apply_move(self.task.string_to_move(a, board), board)
 
         try:
@@ -683,9 +687,11 @@ class AlphaZero(Approach):
             # can't count on consistent player numbers
             # or even consisten player counts
             if board.next_player == first_player_number:
+                print("FIRST PLAYER")
                 move = first_player.get_move(board, temp)
                 board = self.task.apply_move(move, board)
             else:
+                print("SECOND PLAYER")
                 move = second_player.get_move(board, temp)
                 board = self.task.apply_move(move, board)
 
