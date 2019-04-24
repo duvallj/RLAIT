@@ -63,11 +63,11 @@ class SimplestTask(Task):
         elif state.next_player == 1:
             nstate[1] = nmove
 
-        nstate.next_player = state.next_player + 1
+        nstate.next_player = (state.next_player + 1) % 2
         return nstate
 
     def is_terminal_state(self, state):
-        return state.next_player > 1
+        return state[0] != 0 and state[1] != 0
 
     def get_winners(self, state):
         if state[0] == state[1]:

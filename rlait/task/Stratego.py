@@ -70,6 +70,7 @@ class Stratego(Task):
         """
         kwargs['task_name'] = kwargs.get('task_name', 'stratego')
         kwargs['num_phases'] = 2
+        kwargs['num_players'] = 2
         super().__init__(**kwargs)
 
         self.N = size

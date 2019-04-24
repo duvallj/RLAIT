@@ -59,7 +59,7 @@ class Go(Task):
         komi : float (0.5)
             Number of points to give to White due to their disadvantage
         """
-        super().__init__(task_name="go", num_phases=1)
+        super().__init__(task_name="go", num_phases=1, num_players=2)
 
         self.N = board_size
 

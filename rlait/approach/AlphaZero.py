@@ -169,10 +169,10 @@ class AlphaZero(Approach):
 
         conv_model = SimpleConvNet(self.args, x_image)
 
-        self.v = Dense(1, activation='tanh', name='v')(conv_model.output)                                                                        # batch_size x 1
+        self.v = Dense(self.task.num_players, activation='tanh', name='v')(conv_model.output)                                                                        # batch_size x 1
 
         self.outputs = [self.v]
-        self.output_sizes = [1]
+        self.output_sizes = [self.task.num_players]
 
         self.models = []
 
@@ -279,16 +279,15 @@ class AlphaZero(Approach):
 
         Returns
         -------
-            v: the negative of the value of the current canonicalBoard
+            v: the player value vector corresponding to the searched board
 
         Notes
         -----
-        The return values are the negative of the value of the current
-        state. This is done since v is in [-1,1] and if v is the value of a
-        state for the current player, then its value is -v for the other player.
+        Because of the internal use of canonical boards, every v returned is
+        relative to the perspective of the first player.
         """
 
-        if depth > maxdepth: return 0
+        if depth > maxdepth: return np.zeros((self.task.num_players,))
 
         canonicalBoard = self.task.get_canonical_form(board)
         phase = board.phase
@@ -297,24 +296,23 @@ class AlphaZero(Approach):
         if s not in self.Es:
             if self.task.is_terminal_state(board):
                 winners = self.task.get_winners(board)
-                # Make it so that tying is OK
-                if board.next_player in winners or (not winners):
-                    self.Es[s] = 1
-                else:
-                    self.Es[s] = -1
+                self.Es[s] = np.array([1 if (i in winners) else -1 for i in range(self.task.num_players)])
             else:
-                self.Es[s] = 0
+                self.Es[s] = np.zeros((self.task.num_players,))
 
-        if self.Es[s]!=0:
+        if not (self.Es[s] == 0).all():
             # terminal node
-            return -self.Es[s]
+            return self.Es[s]
 
         if s not in self.Ps:
             # leaf node
             # NOTE: this section is the only place canonical boards are introduced
             # the rest of the searching takes place on non-canonical boards
             # for ease of passing hidden information.
+            # NOTE: but I shouldn't even be passing around hidden information because it should be hidden even when searching???
             v, self.Ps[s] = self._nn_predict(canonicalBoard)
+            # correcting ordering of v
+            v = np.concatenate((v[(self.task.num_players-board.next_player):], v[:(self.task.num_players-board.next_player)]))
             self.Ps[s] = np.reshape(self.Ps[s], self.task.empty_move(board.phase).shape)
             # unfortunately, this requires that canonical forms do nothing
             # like flipping the board, which is usually normal...
@@ -334,9 +332,9 @@ class AlphaZero(Approach):
 
             self.Vs[s] = list(self.task.iterate_legal_moves(board))
             self.Ns[s] = 0
-            print("For state {}".format(self.task.state_string_representation(canonicalBoard)))
-            print("Predicted move: {} and value: {}".format(self.Ps[s], v))
-            return -v
+            #print("For state {}".format(self.task.state_string_representation(canonicalBoard)))
+            #print("Predicted move: {} and value: {}".format(self.Ps[s], v))
+            return v
 
         valid_moves = self.Vs[s]
         cur_best = -float('inf')
@@ -346,7 +344,7 @@ class AlphaZero(Approach):
         for move in valid_moves:
             a = self.task.move_string_representation(move, board)
             if (s,a) in self.Qsa:
-                u = self.Qsa[(s,a)] + self.args.cpuct*(move*self.Ps[s]).sum()*math.sqrt(self.Ns[s])/(1+self.Nsa[(s,a)])
+                u = self.Qsa[(s,a)][board.next_player] + self.args.cpuct*(move*self.Ps[s]).sum()*math.sqrt(self.Ns[s])/(1+self.Nsa[(s,a)])
             else:
                 u = self.args.cpuct*(move*self.Ps[s]).sum()*math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
 
@@ -355,8 +353,8 @@ class AlphaZero(Approach):
                 best_act = a
 
         a = best_act
-        print("For state {}".format(self.task.state_string_representation(board)))
-        print("Best move is {}".format(a))
+        #print("For state {}".format(self.task.state_string_representation(board)))
+        #print("Best move is {}".format(a))
         next_s = self.task.apply_move(self.task.string_to_move(a, board), board)
 
         try:
@@ -367,10 +365,6 @@ class AlphaZero(Approach):
             # to inadequate tie handling anyways, which should be fixed)
             return 0
 
-        if next_s.next_player == board.next_player:
-            # skipped a move, keep the same value
-            v *= -1
-
         if (s,a) in self.Qsa:
             self.Qsa[(s,a)] = (self.Nsa[(s,a)]*self.Qsa[(s,a)] + v)/(self.Nsa[(s,a)]+1)
             self.Nsa[(s,a)] += 1
@@ -379,7 +373,7 @@ class AlphaZero(Approach):
             self.Nsa[(s,a)] = 1
 
         self.Ns[s] += 1
-        return -v
+        return v
 
     def _get_action_prob(self, state, temp=1):
         """
@@ -597,15 +591,17 @@ class AlphaZero(Approach):
 
         # Game is over
         winners = self.task.get_winners(board)
-        r = 0
-        if board.next_player in winners:
-            r = 1
-        else:
-            r = -1
+
+        #print("SELFPLAY GAME OVER. Board: {}".format(self.task.state_string_representation(board)))
+        #print("Winners: {}. Final player: {}.".format(winners, board.next_player))
         # This might be biased towards or against ties depending on the last player
         # to move, but in sufficiently complex games this should result in a 50/50
         # split anyways
-        return [(board, pi, r*((-1)**(player!=board.next_player))) for board, player, pi in trainExamples]
+        fmtTrainExamples = []
+        for old_board, player, pi in trainExamples:
+            r = np.array([1 if (i in winners) else -1 for i in range(self.task.num_players)])
+            fmtTrainExamples.append((old_board, pi, r))
+        return fmtTrainExamples
 
     def _run_selfplay(self):
 
@@ -657,7 +653,7 @@ class AlphaZero(Approach):
             f_input_boards = np.asarray(f_input_boards)
             f_target_pis = np.asarray(f_target_pis)
             f_target_vs = np.asarray(f_target_vs)
-            f_target_vs = f_target_vs.reshape(f_target_vs.shape + (1,))
+            #f_target_vs = f_target_vs.reshape(f_target_vs.shape + (1,))
             self.models[phase].fit(
                 x=f_input_boards,
                 y=[f_target_vs, f_target_pis],
@@ -687,11 +683,11 @@ class AlphaZero(Approach):
             # can't count on consistent player numbers
             # or even consisten player counts
             if board.next_player == first_player_number:
-                print("FIRST PLAYER")
+                #print("FIRST PLAYER")
                 move = first_player.get_move(board, temp)
                 board = self.task.apply_move(move, board)
             else:
-                print("SECOND PLAYER")
+                #print("SECOND PLAYER")
                 move = second_player.get_move(board, temp)
                 board = self.task.apply_move(move, board)
 
@@ -732,6 +728,7 @@ class AlphaZero(Approach):
         draws = 0
 
         for _ in range(num):
+            #print("NEW V OLD")
             result = self._arena_play_once(self, self.pnet, verbose=verbose)
             if result == 1:
                 oneWon += 1
@@ -741,7 +738,8 @@ class AlphaZero(Approach):
                 draws += 1
             eps_time.add(1, [("wins", oneWon), ("losses", twoWon), ("draws", draws)])
 
-            result = self._arena_play_once(self.pnet, self, verbose)
+            #print("OLD V NEW")
+            result = self._arena_play_once(self.pnet, self, verbose=verbose)
             if result == 1:
                 twoWon += 1
             elif result == -1:
@@ -782,6 +780,7 @@ class AlphaZero(Approach):
         self.pnet._reset_mcts()
 
         self._train_nnet(trainExamples)
+        #print(self.trainExamplesHistory)
         self._reset_mcts()
 
         log.info('PITTING AGAINST PREVIOUS VERSION')

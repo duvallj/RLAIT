@@ -20,9 +20,8 @@ class Uno(Task):
         init_hand_size : int (7)
             How many cards players should be dealt initially
         """
-        super().__init__(task_name="uno", num_phases=1)
+        super().__init__(task_name="uno", num_phases=1, num_players=num_players)
 
-        self.num_players = num_players
         self.num_colors = num_colors
         self.num_cards = num_cards
         self.init_hand_size = init_hand_size

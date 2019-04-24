@@ -3,6 +3,7 @@ import os
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 from rlait.task.Go import Go
+from rlait.task.Othello import Othello
 from rlait.approach.Random import Random
 from rlait.approach.InteractivePlayer import InteractivePlayer
 from rlait.util import dotdict, BadMoveException
@@ -104,24 +105,25 @@ class GoRunner:
         ql.save_weights("checkpoint_2.pkl")
 
 class SimpleRunner:
-    task = SimplestTask()
+    task = Othello(4) #SimplestTask()
 
     def train(self):
         from rlait.approach.AlphaZero import AlphaZero
         az = AlphaZero({
-            "numEps": 10,
+            "numEps": 100,
             "startFromEp": 0,
-            "numMCTSSims": 5,
+            "numMCTSSims": 20,
+            "cpuct": 1.0,
             "tempThreshold": 0,
             "maxDepth": 100,
             "arenaCompare": 10,
             "load_checkpoint": False,
             "checkpoint": None,
             "prevHistory": None,
-            "checkpoint_dir": "./simple_checkpoints",
+            "checkpoint_dir": "./o4_checkpoints",
         }).init_to_task(self.task)
 
-        for x in range(10):
+        for x in range(100):
             az.train_once()
 
     def run_interactive(self):

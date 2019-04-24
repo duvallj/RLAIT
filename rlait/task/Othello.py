@@ -24,7 +24,7 @@ class Othello(Task):
         board_size : int (default 8)
             Size of board to play on
         """
-        super().__init__(task_name="othello", num_phases=1)
+        super().__init__(task_name="othello", num_phases=1, num_players=2)
 
         self.N = board_size
 
