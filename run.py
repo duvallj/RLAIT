@@ -105,38 +105,44 @@ class GoRunner:
         ql.save_weights("checkpoint_2.pkl")
 
 class SimpleRunner:
-    task = Othello(4) #SimplestTask()
+    task = SimplestTask()
 
     def train(self):
         from rlait.approach.AlphaZero import AlphaZero
         az = AlphaZero({
-            "numEps": 100,
+            "numEps": 20,
             "startFromEp": 0,
-            "numMCTSSims": 20,
+            "startWithRandomPlay": True,
+            "numMCTSSims": 100,
             "cpuct": 1.0,
-            "tempThreshold": 0,
+            "tempThreshold": 10,
+            "updateThreshold": 0.51,
             "maxDepth": 100,
+            "epochs": 30,
             "arenaCompare": 10,
             "load_checkpoint": False,
             "checkpoint": None,
             "prevHistory": None,
-            "checkpoint_dir": "./o4_checkpoints",
+            "checkpoint_dir": "./simple_checkpoints",
         }).init_to_task(self.task)
 
-        for x in range(100):
+        for x in range(10):
             az.train_once()
+
+        az.save_weights("checkpoint_1.pkl")
 
     def run_interactive(self):
         from rlait.approach.AlphaZero import AlphaZero
+        #from rlait.approach.QLearning import QLearning
         ai1 = InteractivePlayer().init_to_task(self.task)
         ai2 = AlphaZero({
             "load_checkpoint": True,
             "checkpoint": "temp.pth.tar",
             "prevHistory": None,
-            "checkpoint_dir": "./simple_checkpoints",
+            "checkpoint_dir": "./qls_checkpoints",
         }).init_to_task(self.task)
 
-        run_test.main(None, self.task, ai1, ai2)
+        run_test.main(None, self.task, aii, ai2)
 
 
 if __name__ == "__main__":

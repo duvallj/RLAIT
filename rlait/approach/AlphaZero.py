@@ -76,6 +76,11 @@ class AlphaZero(Approach):
             A factor that determines how likely the MCTS is to explore.
         * maxDepth : int (5000)
             The maximum search depth to explore for one move
+        * startWithRandomPlay : bool (false)
+            If starting at the first iteration, do we use random play to generate
+            some training examples to look at first?
+        * numRandomPlayExamples : int (100)
+            Number of random game examples to generate
 
         * load_checkpoint : bool (False)
             Do we load a checkpoint?
@@ -112,6 +117,8 @@ class AlphaZero(Approach):
         self.args.arenaCompare                    = self.args.get("arenaCompare", 11)
         self.args.cpuct                           = self.args.get("cpuct", 1.0)
         self.args.maxDepth                        = self.args.get("maxDepth", 500)
+        self.args.startWithRandomPlay             = self.args.get("startWithRandomPlay", False)
+        self.args.numRandomPlayExamples           = self.args.get("numRandomPlayExamples", 100)
 
         self.args.load_checkpoint                 = self.args.get("load_checkpoint", False)
         self.args.checkpoint                      = self.args.get("checkpoint", None)
@@ -331,7 +338,7 @@ class AlphaZero(Approach):
                 self.Ps[s] /= np.sum(self.Ps[s])
 
             self.Vs[s] = list(self.task.iterate_legal_moves(board))
-            self.Ns[s] = 0
+            self.Ns[s] = 1
             #print("For state {}".format(self.task.state_string_representation(canonicalBoard)))
             #print("Predicted move: {} and value: {}".format(self.Ps[s], v))
             return v
@@ -409,6 +416,17 @@ class AlphaZero(Approach):
             probs[bestA] = 1
         else:
             probs = [x**(1./temp) for x in counts]
+
+        return probs, avail_moves
+
+    def _get_random_action_prob(self, state, temp=1):
+        """
+        Just like _get_action_prob, only completely random
+        """
+        s = self.task.state_string_representation(state)
+        avail_moves = list(map(lambda x: self.task.move_string_representation(x, state),
+                     self.task.iterate_legal_moves(state)))
+        probs = [1.0/len(avail_moves)] * len(avail_moves)
 
         return probs, avail_moves
 
@@ -563,7 +581,7 @@ class AlphaZero(Approach):
     def _get_checkpoint_filename(self, iteration):
         return "checkpoint_{}.pth.tar".format(iteration)
 
-    def _run_one_selfplay(self):
+    def _run_one_selfplay(self, action_prob_func):
         trainExamples = []
         board = self.task.empty_state(phase=0)
         episodeStep = 0
@@ -572,7 +590,7 @@ class AlphaZero(Approach):
             episodeStep += 1
             temp = int(episodeStep < self.args.tempThreshold)
 
-            probs, avail_moves = self._get_action_prob(board, temp=temp)
+            probs, avail_moves = action_prob_func(board, temp=temp) #self._get_action_prob(board, temp=temp)
             # not applicable to all games, but might include later
             #sym = self.task.getSymmetries(canonicalBoard, pi)
             #for b,p in sym:
@@ -608,14 +626,26 @@ class AlphaZero(Approach):
         # bookkeeping
         log.info('------ITER ' + str(self.iteration) + '------')
         # examples of the iteration
-        if self.iteration > self.args.startFromEp or not self.skipFirstSelfPlay:
+        if self.iteration == 0 and self.args.startWithRandomPlay:
+            iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
+            log.info("Running Random Play to start")
+            bar = Progbar(self.args.numRandomPlayExamples)
+            bar.update(0)
+
+            for eps in range(self.args.numRandomPlayExamples):
+                iterationTrainExamples += self._run_one_selfplay(self._get_random_action_prob)
+                bar.add(1)
+
+            self.trainExamplesHistory.append(iterationTrainExamples)
+
+        elif self.iteration > self.args.startFromEp or not self.skipFirstSelfPlay:
             iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
             bar = Progbar(self.args.numEps)
             bar.update(0)
 
             for eps in range(self.args.numEps):
                 self._reset_mcts()
-                iterationTrainExamples += self._run_one_selfplay()
+                iterationTrainExamples += self._run_one_selfplay(self._get_action_prob)
                 # bookkeeping + plot progress
                 bar.add(1)
 
@@ -703,7 +733,7 @@ class AlphaZero(Approach):
 
         return r
 
-    def _arena_play(self, num, verbose=False):
+    def _arena_play(self, num, verbose=True):
         """
         Plays num games in which player 1 and 2 both start num/2 times each
 
@@ -728,7 +758,7 @@ class AlphaZero(Approach):
         draws = 0
 
         for _ in range(num):
-            #print("NEW V OLD")
+            #import pdb; pdb.set_trace()
             result = self._arena_play_once(self, self.pnet, verbose=verbose)
             if result == 1:
                 oneWon += 1
@@ -738,7 +768,6 @@ class AlphaZero(Approach):
                 draws += 1
             eps_time.add(1, [("wins", oneWon), ("losses", twoWon), ("draws", draws)])
 
-            #print("OLD V NEW")
             result = self._arena_play_once(self.pnet, self, verbose=verbose)
             if result == 1:
                 twoWon += 1
@@ -749,7 +778,6 @@ class AlphaZero(Approach):
             eps_time.add(1, [("wins", oneWon), ("losses", twoWon), ("draws", draws)])
 
         return oneWon, twoWon, draws
-
 
     def train_once(self):
         """

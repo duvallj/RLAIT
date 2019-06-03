@@ -27,7 +27,6 @@ class Task:
         self.num_phases = num_phases
         self.num_players = num_players
 
-
     def empty_move(self, phase=0):
         """
         Gets an empty move vector for sizing purposes.
@@ -79,7 +78,6 @@ class Task:
 
         yield None
 
-
     def iterate_legal_moves(self, state):
         """
         Iterates over all the legal moves for a given state
@@ -130,7 +128,6 @@ class Task:
         """
 
         return None
-
 
     def apply_move(self, move, state):
         """
@@ -222,7 +219,7 @@ class Task:
 
         return None
 
-    def string_to_move(self, move_str, phase=0):
+    def string_to_move(self, move_str, state):
         """
         Returns a move given a string from `move_string_representation`
 
